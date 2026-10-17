@@ -29,4 +29,7 @@ class Dataset(torch.utils.data.Dataset):
         if self.transform:
             image, mask = self.transform(image, mask)
 
+        mask = mask.unsqueeze(0)  # Add channel dimension for mask
+        mask = mask.float() / 255.0  # Normalize mask to [0, 1]
+
         return image, mask

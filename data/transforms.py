@@ -25,7 +25,7 @@ class Augmenter:
             A.RandomBrightnessContrast(p=brightness_contrast_prob, brightness_limit=0.2, contrast_limit=0.2),
             A.OneOf([
                 A.Rotate(limit=rotate_limit, p=rotate_prob),
-                A.RandomResizedCrop(p=crop_prob, size=(int(image_size * 0.8), int(image_size * 0.8))),
+                A.RandomResizedCrop(p=crop_prob, size=(image_size , image_size)),
             ], p=0.5),
             A.Normalize(),
             ToTensorV2()
