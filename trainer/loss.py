@@ -36,3 +36,11 @@ def true_positive(pred, target):
     total_target = (target == 1).sum(dim=2).sum(dim=2)
     
     return (tp.float() / (total_target.float() + 1e-6)).mean()
+
+# ---------------------------------------------
+
+metrics = {
+    "Dice": dice,
+    "False Positive": false_positive,
+    "True Positive": true_positive
+}

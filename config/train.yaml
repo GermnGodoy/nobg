@@ -23,6 +23,8 @@ training:
   batch_size: 16
   num_workers: 4
   shuffle: true
-  steps: 1000
+  steps: 
+  metrics: ["Dice", "False Positive", "True Positive"]
+  optimizer: "adam"
 
 seed: 2811
