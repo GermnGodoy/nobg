@@ -18,6 +18,9 @@ augmentation:
 mask_path: "./images/DUTS-TR/DUTS-TR-Mask"
 image_path: "./images/DUTS-TR/DUTS-TR-Image"
 
+sample_images: true
+sample_images_dir: "./runs/sample"
+
 training:
   epochs: 100
   batch_size: 16

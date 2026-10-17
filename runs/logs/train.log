@@ -1,0 +1,12 @@
+Logging to ./runs/logs/train.log
+
+
+===============================
+Starting training at 2026-10-17 22:57:26
+===============================
+
+No model specified in the configuration. Using default model.
+
+Trainable parameters 190
+Images shape: torch.Size([16, 3, 256, 256])
+Masks shape: torch.Size([16, 256, 256])

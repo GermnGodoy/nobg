@@ -10,6 +10,8 @@ from model.model import build_segformer
 from loss import dice_loss, metrics
 from optimizer import optimizers
 
+from sampler import sample_images
+
 import yaml
 
 import time
@@ -171,9 +173,9 @@ def main():
         if epoch % 10 == 0:
             torch.save(model.state_dict(), f"model_epoch_{epoch + 1}.pth")
             print(f"Model saved at epoch {epoch + 1}")
-            
-            if config["training"]["sample_images"]:
-                sample_images(model, val_loader, device, epoch + 1)
+
+            if config["sample_images"]:
+                sample_images(model, val_loader, device, epoch + 1, config["sample_images_dir"])
                 print(f"Sample images saved at epoch {epoch + 1}")
             print()
 
