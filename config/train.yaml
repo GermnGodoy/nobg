@@ -22,12 +22,13 @@ sample_images: true
 sample_images_dir: "./runs/sample"
 
 training:
-  epochs: 100
+  epochs: 2
   batch_size: 16
   num_workers: 4
   shuffle: true
-  steps: 
+  steps: 100
   metrics: ["Dice", "False Positive", "True Positive"]
   optimizer: "adam"
+  learning_rate: 0.001
 
 seed: 2811

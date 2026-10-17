@@ -7,10 +7,9 @@ from data.transforms import Augmenter, get_val_augmentation
 import torch
 from model.model import build_segformer
 
-from loss import dice_loss, metrics
-from optimizer import optimizers
-
-from sampler import sample_images
+from trainer.loss import dice_loss, metrics
+from trainer.optimizer import optimizers
+from trainer.sampler import sample_images
 
 import yaml
 
@@ -34,6 +33,10 @@ def train_epoch(model, train_loader, device, steps, optimizer_name, loss_fn, lea
     optimizer = optimizers[optimizer_name](lr=learning_rate, params=model.parameters())
     
     total_loss = 0.0
+    current_step = 0
+    total_steps = len(train_loader)
+    if steps is not None:
+        total_steps = min(total_steps, steps)
 
     for step, (images, masks) in enumerate(train_loader):
         if steps is not None and step >= steps:
@@ -48,8 +51,16 @@ def train_epoch(model, train_loader, device, steps, optimizer_name, loss_fn, lea
         optimizer.step()
         
         total_loss += loss.item()
+
+        current_step = step + 1
+        if current_step == 1 or current_step % 10 == 0 or current_step == total_steps:
+            print(
+                f"Step {current_step:>3}/{total_steps} "
+                f"| Loss media: {total_loss / current_step:.4f}",
+                flush=True,
+            )
     
-    return total_loss / (step + 1)
+    return total_loss / max(current_step, 1)
 
 
 # ---------------------------------------------
@@ -104,9 +115,9 @@ def main():
             
         print(f"Logging to {config['log_dir']}\n")
 
-    print(f"\n===============================")
+    print(f"\n===============================================")
     print(f"Starting training at {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}")
-    print(f"===============================\n")
+    print(f"===============================================\n")
 
     # Create the model
     if config["model"] is None:
@@ -157,6 +168,8 @@ def main():
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
+    print("\nStarting first epoch...\n")
+
     # Start training
     for epoch in range(epochs):
         train_loss = train_epoch(model, train_loader, device, steps, config["training"]["optimizer"], dice_loss, learning_rate=config["training"]["learning_rate"])
@@ -170,7 +183,7 @@ def main():
         for name, value in validate_metrics.items():
             print(f"\t{name}: {value:.4f}\n")
 
-        if epoch % 10 == 0:
+        if epoch % 1 == 0:
             torch.save(model.state_dict(), f"model_epoch_{epoch + 1}.pth")
             print(f"Model saved at epoch {epoch + 1}")
 
