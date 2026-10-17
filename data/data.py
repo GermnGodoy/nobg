@@ -1,5 +1,6 @@
 import torch
 import cv2
+from pathlib import Path
 
 # ---------------------------------------------
 # Dataset Class
@@ -11,14 +12,19 @@ class Dataset(torch.utils.data.Dataset):
     
     def __init__(self, mask_path, image_path, transform=None):
         self.mask_path = mask_path
+        self.mask_routes = sorted(path for path in Path(self.mask_path).glob("*.png"))
         self.image_path = image_path
+        self.image_routes = sorted(path for path in Path(self.image_path).glob("*.jpg"))
         self.transform = transform
 
-    __len__ = lambda self: min(len(self.mask_path), len(self.image_path))
+        if [Path(p).stem for p in self.mask_routes] != [Path(p).stem for p in self.image_routes]:
+            raise ValueError("Mask and image filenames do not match.")
+
+    __len__ = lambda self: min(len(self.mask_routes), len(self.image_routes))
 
     def __getitem__(self, idx):
-        mask = cv2.imread(self.mask_path[idx], cv2.IMREAD_GRAYSCALE)
-        image = cv2.imread(self.image_path[idx], cv2.IMREAD_COLOR)
+        mask = cv2.imread(str(self.mask_routes[idx]), cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(str(self.image_routes[idx]), cv2.IMREAD_COLOR)
 
         if self.transform:
             image, mask = self.transform(image, mask)
