@@ -5,6 +5,8 @@ from torch import nn
 import torch
 from torch.nn import functional as F
 
+# ---------------------------------------------
+# Checkers
 
 def _positive_int(name, value):
     if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
@@ -23,6 +25,8 @@ def _stage_values(name, values, count):
         raise ValueError(f"{name} must contain {count} values. Got {len(values)}")
     return values
 
+# ---------------------------------------------
+# DropPath
 
 class DropPath(nn.Module):
     """Drop a residual branch per sample during training, preserving its expectation."""
@@ -140,15 +144,19 @@ class MixFFN(nn.Module):
     """Mix Feed Forward Network block optimized following the ideas of SegFormer paper."""
 
     def __init__(self, dim, ffn_expansion_factor=4, drop=0., kernel_size=3):
+        
         super().__init__()
         _positive_int("dim", dim)
         _positive_int("kernel_size", kernel_size)
+
         if kernel_size % 2 == 0:
             raise ValueError("kernel_size must be odd to preserve spatial dimensions")
+        
         if (not isinstance(ffn_expansion_factor, Real)
                 or not math.isfinite(ffn_expansion_factor)
                 or ffn_expansion_factor <= 0):
             raise ValueError("ffn_expansion_factor must be finite and positive")
+        
         hidden_features = int(dim * ffn_expansion_factor)
         _positive_int("hidden_features", hidden_features)
 
@@ -200,30 +208,37 @@ class TransformerBlock(nn.Module):
         x = x + self.drop_path(self.ffn(self.norm2(x), H, W))
         return x
 
-
+# ---------------------------------------------
+# Encoder
 class MiTEncoder(nn.Module):
-    """Four-stage Mix Transformer; defaults follow MiT-B0 in supplemental Table 4."""
+    """Four-stage Mix Transformer"""
 
     def __init__(self, in_channels=3, embed_dims=(32, 64, 160, 256), num_heads=(1, 2, 5, 8), ffn_expansion_factors=(8, 8, 4, 4), qkv_bias=True, drop_rate=0., attn_drop_rate=0., drop_path_rate=0., sr_ratios=(8, 4, 2, 1), kernel_sizes=(3, 3, 3, 3), depths=(2, 2, 2, 2)):
         super().__init__()
 
         _positive_int("in_channels", in_channels)
+        
         self.in_channels = in_channels
         self.embed_dims = tuple(embed_dims)
         self.num_stages = len(self.embed_dims)
+        
         if self.num_stages != 4:
             raise ValueError("MiTEncoder requires exactly four embed_dims")
         for dim in self.embed_dims:
             _positive_int("embed_dim", dim)
+        
         self.num_heads = _stage_values("num_heads", num_heads, self.num_stages)
         self.ffn_expansion_factors = _stage_values("ffn_expansion_factors", ffn_expansion_factors, self.num_stages)
         self.sr_ratios = _stage_values("sr_ratios", sr_ratios, self.num_stages)
         self.kernel_sizes = _stage_values("kernel_sizes", kernel_sizes, self.num_stages)
         self.depths = _stage_values("depths", depths, self.num_stages)
+        
         for depth in self.depths:
             _positive_int("depth", depth)
-        # Validate even if the first block's scheduled rate is zero.
-        DropPath(drop_path_rate)
+
+        if not isinstance(drop_path_rate, Real) or not 0 <= drop_path_rate < 1:
+            raise ValueError("drop_path_rate must be in [0, 1)")
+
         path_rates = torch.linspace(0, drop_path_rate, sum(self.depths)).tolist()
         block_index = 0
 
@@ -273,10 +288,11 @@ class MiTEncoder(nn.Module):
             features.append(x)
         return features
 
+# ---------------------------------------------
+# Decoder
 
 class SegFormerDecoder(nn.Module):
-    """All-MLP decoder following Eq. (4); output uses the first stage's resolution.
-
+    """
     Each scale is projected C_i -> decoder_dim, resized and concatenated.
     A 1x1 convolution implements a shared linear map at every pixel.
     """
@@ -284,56 +300,74 @@ class SegFormerDecoder(nn.Module):
     def __init__(self, in_channels=(32, 64, 160, 256), decoder_dim=256,
                  num_classes=2, dropout=0.0):
         super().__init__()
+
         self.in_channels = tuple(in_channels)
-        if len(self.in_channels) != 4:
+        
+        if len(self.in_channels) != 4: # by now only four scales are supported
             raise ValueError("SegFormerDecoder requires four feature maps")
+        
         _positive_int("decoder_dim", decoder_dim)
         _positive_int("num_classes", num_classes)
+        
         for channels in self.in_channels:
             _positive_int("in_channels", channels)
+        
         self.projections = nn.ModuleList([
             nn.Linear(channels, decoder_dim) for channels in self.in_channels
         ])
-        self.fuse = nn.Conv2d(4 * decoder_dim, decoder_dim, kernel_size=1)
+        self.fuse = nn.Sequential(
+            nn.Conv2d(4 * decoder_dim, decoder_dim, kernel_size=1),
+            nn.BatchNorm2d(decoder_dim),
+            nn.ReLU(inplace=True)
+        )
+        
         self.drop = nn.Dropout2d(dropout)
         self.classifier = nn.Conv2d(decoder_dim, num_classes, kernel_size=1)
 
     def forward(self, features):
         if len(features) != 4:
             raise ValueError("Expected four encoder feature maps")
+        
         if features[0].ndim != 4:
             raise ValueError("Feature maps must have shape [B, C, H, W]")
+        
         batch = features[0].shape[0]
         target_size = features[0].shape[-2:]
         projected = []
+        
         for i, (feature, projection) in enumerate(zip(features, self.projections)):
             if (feature.ndim != 4 or feature.shape[0] != batch
                     or feature.shape[1] != self.in_channels[i]):
                 raise ValueError(
                     f"Feature {i} must have shape [B={batch}, C={self.in_channels[i]}, H, W]"
                 )
+            
             B, _, H, W = feature.shape
+            
             tokens = projection(feature.flatten(2).transpose(1, 2))
             feature = tokens.transpose(1, 2).reshape(B, -1, H, W)
+            
             if (H, W) != target_size:
                 feature = F.interpolate(feature, size=target_size,
                                         mode="bilinear", align_corners=False)
+            
             projected.append(feature)
-        fused = self.fuse(torch.cat(projected, dim=1))  # [B, decoder_dim, H1, W1]
-        return self.classifier(self.drop(fused))  # [B, num_classes, H1, W1]
+        
+        fused = self.fuse(torch.cat(projected, dim=1))  
+        return self.classifier(self.drop(fused))  
 
-
+# ---------------------------------------------
+# Full Pipeline
 class SegFormer(nn.Module):
     """From-scratch encoder and decoder returning raw segmentation logits.
 
-    By default logits are resized to the image size. Pass upsample_logits=False
-    to obtain the native decoder resolution. Apply softmax only for probabilities,
-    not before CrossEntropyLoss.
+    By default logits are resized to the image size. Pass upsample_logits=False to obtain the native decoder resolution. Apply softmax only for probabilities, not before CrossEntropyLoss.
     """
 
     def __init__(self, num_classes=2, decoder_dim=256, decoder_dropout=0.0,
                  upsample_logits=True, **encoder_kwargs):
         super().__init__()
+        
         self.encoder = MiTEncoder(**encoder_kwargs)
         self.decoder = SegFormerDecoder(
             in_channels=self.encoder.embed_dims, decoder_dim=decoder_dim,
@@ -348,3 +382,16 @@ class SegFormer(nn.Module):
             logits = F.interpolate(logits, size=x.shape[-2:],
                                    mode="bilinear", align_corners=False)
         return logits
+
+
+# ---------------------------------------------
+# Builders
+
+def build_segformer(num_classes=2, decoder_dim=256, decoder_dropout=0.0,
+                    upsample_logits=True, **encoder_kwargs):
+    """Build a SegFormer model with the given configuration."""
+    return SegFormer(
+        num_classes=num_classes, decoder_dim=decoder_dim,
+        decoder_dropout=decoder_dropout, upsample_logits=upsample_logits,
+        **encoder_kwargs
+    )
