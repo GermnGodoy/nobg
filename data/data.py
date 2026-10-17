@@ -1,4 +1,5 @@
 import torch
+import cv2
 
 # ---------------------------------------------
 # Dataset Class
@@ -16,8 +17,8 @@ class Dataset(torch.utils.data.Dataset):
     __len__ = lambda self: min(len(self.mask_path), len(self.image_path))
 
     def __getitem__(self, idx):
-        mask = self.mask_path[idx]
-        image = self.image_path[idx]
+        mask = cv2.imread(self.mask_path[idx], cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(self.image_path[idx], cv2.IMREAD_COLOR)
 
         if self.transform:
             image, mask = self.transform(image, mask)

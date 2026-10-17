@@ -1,0 +1,28 @@
+
+
+log_dir: "./runs/logs/train.log"
+
+model: 
+
+pretrained:
+
+augmentation:
+  image_size: 256
+  hflip_prob: 0.5 
+  vflip_prob: 0.5
+  rotate_prob: 0.5
+  crop_prob: 0.5
+  brightness_contrast_prob: 0.5
+  rotate_limit: 45
+
+mask_path: "./images/DUTS-TR/DUTS-TR-Mask"
+image_path: "./images/DUTS-TR/DUTS-TR-Image"
+
+training:
+  epochs: 100
+  batch_size: 16
+  num_workers: 4
+  shuffle: true
+  steps: 1000
+
+seed: 2811

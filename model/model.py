@@ -387,7 +387,7 @@ class SegFormer(nn.Module):
 # ---------------------------------------------
 # Builders
 
-def build_segformer(num_classes=2, decoder_dim=256, decoder_dropout=0.0,
+def build_segformer(num_classes=1, decoder_dim=256, decoder_dropout=0.1,
                     upsample_logits=True, **encoder_kwargs):
     """Build a SegFormer model with the given configuration."""
     return SegFormer(
