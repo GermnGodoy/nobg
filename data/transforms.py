@@ -31,7 +31,7 @@ class Augmenter:
             ToTensorV2()
         ])
     
-    def __call__(self, image, mask):
+    def __call__(self, *, image, mask):
         return self.transform(image=image, mask=mask)
         
 
