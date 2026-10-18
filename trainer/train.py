@@ -61,7 +61,7 @@ def train_epoch(model, train_loader, device, steps, optimizer, loss_fn):
                 flush=True,
             )
     
-    return total_loss / max(current_step, 1)
+    return total_loss / max(current_step, 1), current_step
 
 
 # ---------------------------------------------
@@ -128,9 +128,15 @@ def main():
         print(f"Using model configuration: {config['model']}")
         model = build_segformer(**config["model"])
     
+    checkpoint = None
     if config["pretrained"] is not None:
         print(f"Using pretrained model: {config['pretrained']}")
-        model.load_state_dict(torch.load(config["pretrained"], map_location="cpu", warning=False))
+        saved_state = torch.load(config["pretrained"], map_location="cpu", weights_only=True)
+        if "model_state_dict" in saved_state:
+            checkpoint = saved_state
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            model.load_state_dict(saved_state)
         
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -139,10 +145,30 @@ def main():
         params=model.parameters(), lr=config["training"]["learning_rate"]
     )
 
+    start_epoch = 0
+    global_step = 0
+    if checkpoint is not None:
+        saved_optimizer = checkpoint["config"]["training"]["optimizer"]
+        if saved_optimizer != config["training"]["optimizer"]:
+            raise ValueError(
+                f"Checkpoint uses optimizer {saved_optimizer!r}, but the configuration "
+                f"specifies {config['training']['optimizer']!r}."
+            )
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint["epoch"]
+        global_step = checkpoint["step"]
+        print(f"Resuming after epoch {start_epoch}, global step {global_step}")
+
     print(f"\nTrainable parameters {len([p for p in model.parameters() if p.requires_grad])}")
     
     # Dataset and loading
     epochs = config["training"]["epochs"]
+    if start_epoch >= epochs:
+        print(
+            f"Checkpoint already completed {start_epoch} epochs. "
+            "Increase training.epochs to continue training."
+        )
+        return
     batch_size = config["training"]["batch_size"]
     steps = config["training"]["steps"]
     shuffle = config["training"]["shuffle"] if "shuffle" in config["training"] else True
@@ -173,12 +199,13 @@ def main():
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    print("\nStarting first epoch...\n")
+    print(f"\nStarting epoch {start_epoch + 1}/{epochs}...\n")
     print("===============================================\n")
 
     # Start training
-    for epoch in range(epochs):
-        train_loss = train_epoch(model, train_loader, device, steps, optimizer, dice_loss)
+    for epoch in range(start_epoch, epochs):
+        train_loss, epoch_steps = train_epoch(model, train_loader, device, steps, optimizer, dice_loss)
+        global_step += epoch_steps
         
         print(f"\nEpoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
         
@@ -191,8 +218,17 @@ def main():
 
         if epoch % 1 == 0:
             print("\n================================================\n")
-            torch.save(model.state_dict(), f"model_epoch_{epoch + 1}.pth")
-            print(f"Model saved at epoch {epoch + 1}")
+            torch.save({
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "epoch": epoch + 1,
+                "step": global_step,
+                "loss": train_loss,
+                "val_loss": validate_loss,
+                "val_metrics": validate_metrics,
+                "config": config,
+            }, f"model_epoch_{epoch + 1}.pth")
+            print(f"Checkpoint saved at epoch {epoch + 1}, global step {global_step}")
 
             if config["sample_images"]:
                 sample_images(model, val_loader, device, epoch + 1, config["sample_images_dir"])
