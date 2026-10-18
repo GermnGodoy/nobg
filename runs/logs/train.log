@@ -1,12 +1,72 @@
 Logging to ./runs/logs/train.log
 
 
-===============================
-Starting training at 2026-10-17 22:57:26
-===============================
+===============================================
+Starting training at 2026-10-17 23:37:22
+===============================================
 
 No model specified in the configuration. Using default model.
 
 Trainable parameters 190
-Images shape: torch.Size([16, 3, 256, 256])
-Masks shape: torch.Size([16, 256, 256])
+
+Starting first epoch...
+
+Exception ignored in: <function _MultiProcessingDataLoaderIter.__del__ at 0x10b2ec670>
+Traceback (most recent call last):
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 1664, in __del__
+    self._shutdown_workers()
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 1628, in _shutdown_workers
+    w.join(timeout=_utils.MP_STATUS_CHECK_INTERVAL)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/process.py", line 149, in join
+    res = self._popen.wait(timeout)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/popen_fork.py", line 40, in wait
+    if not wait([self.sentinel], timeout):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/connection.py", line 936, in wait
+    ready = selector.select(timeout)
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/selectors.py", line 416, in select
+    fd_event_list = self._selector.poll(timeout)
+KeyboardInterrupt: 
+Traceback (most recent call last):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 197, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/Users/german/Desktop/nobg/trainer/train.py", line 184, in <module>
+    main()
+  File "/Users/german/Desktop/nobg/trainer/train.py", line 163, in main
+    train_loss = train_epoch(model, train_loader, device, steps, config["training"]["optimizer"], dice_loss, learning_rate=config["training"]["learning_rate"])
+  File "/Users/german/Desktop/nobg/trainer/train.py", line 44, in train_epoch
+    outputs = model(images)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/german/Desktop/nobg/model/model.py", line 379, in forward
+    features = self.encoder(x)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/german/Desktop/nobg/model/model.py", line 282, in forward
+    x = block(x, H, W)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/german/Desktop/nobg/model/model.py", line 208, in forward
+    x = x + self.drop_path(self.ffn(self.norm2(x), H, W))
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/german/Desktop/nobg/model/model.py", line 185, in forward
+    x = self.dwconv(x)  # [B, hidden_features, H, W]
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/conv.py", line 548, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "/Users/german/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/conv.py", line 543, in _conv_forward
+    return F.conv2d(
+KeyboardInterrupt

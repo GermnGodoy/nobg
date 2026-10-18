@@ -227,7 +227,7 @@ def main():
                 "val_loss": validate_loss,
                 "val_metrics": validate_metrics,
                 "config": config,
-            }, f"model_epoch_{epoch + 1}.pth")
+            }, f"./runs/checkpoints/model_epoch_{epoch + 1}.pth")
             print(f"Checkpoint saved at epoch {epoch + 1}, global step {global_step}")
 
             if config["sample_images"]:
