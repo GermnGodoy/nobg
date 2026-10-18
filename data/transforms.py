@@ -32,9 +32,8 @@ class Augmenter:
         ])
     
     def __call__(self, image, mask):
-        augmented = self.transform(image=image, mask=mask)
-        return augmented['image'], augmented['mask']
-
+        return self.transform(image=image, mask=mask)
+        
 
 def get_val_augmentation(image_size):
     """

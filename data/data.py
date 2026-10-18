@@ -27,7 +27,9 @@ class Dataset(torch.utils.data.Dataset):
         image = cv2.imread(str(self.image_routes[idx]), cv2.IMREAD_COLOR)
 
         if self.transform:
-            image, mask = self.transform(image, mask)
+            transformed = self.transform(image, mask)
+            image = transformed["image"]
+            mask = transformed["mask"]
 
         mask = mask.unsqueeze(0)  # Add channel dimension for mask
         mask = mask.float() / 255.0  # Normalize mask to [0, 1]
