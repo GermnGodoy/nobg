@@ -184,9 +184,10 @@ def main():
         print(f"Validation Loss: {validate_loss:.4f}")
         print("Validation Metrics:")
         for name, value in validate_metrics.items():
-            print(f"\t{name}: {value:.4f}\n")
+            print(f"\t{name}: {value:.4f}")
 
         if epoch % 1 == 0:
+            print("\n================================================\n")
             torch.save(model.state_dict(), f"model_epoch_{epoch + 1}.pth")
             print(f"Model saved at epoch {epoch + 1}")
 
