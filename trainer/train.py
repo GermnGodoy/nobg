@@ -28,9 +28,8 @@ def get_config():
 # ---------------------------------------------
 # Train Epoch
 
-def train_epoch(model, train_loader, device, steps, optimizer_name, loss_fn, learning_rate=1e-3):
+def train_epoch(model, train_loader, device, steps, optimizer, loss_fn):
     model.train()
-    optimizer = optimizers[optimizer_name](lr=learning_rate, params=model.parameters())
     
     total_loss = 0.0
     current_step = 0
@@ -136,6 +135,10 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
+    optimizer = optimizers[config["training"]["optimizer"]](
+        params=model.parameters(), lr=config["training"]["learning_rate"]
+    )
+
     print(f"\nTrainable parameters {len([p for p in model.parameters() if p.requires_grad])}")
     
     # Dataset and loading
@@ -175,7 +178,7 @@ def main():
 
     # Start training
     for epoch in range(epochs):
-        train_loss = train_epoch(model, train_loader, device, steps, config["training"]["optimizer"], dice_loss, learning_rate=config["training"]["learning_rate"])
+        train_loss = train_epoch(model, train_loader, device, steps, optimizer, dice_loss)
         
         print(f"\nEpoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
         
