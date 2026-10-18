@@ -38,6 +38,8 @@ def train_epoch(model, train_loader, device, steps, optimizer_name, loss_fn, lea
     if steps is not None:
         total_steps = min(total_steps, steps)
 
+    print("===============================================")
+    
     for step, (images, masks) in enumerate(train_loader):
         if steps is not None and step >= steps:
             break
@@ -56,7 +58,7 @@ def train_epoch(model, train_loader, device, steps, optimizer_name, loss_fn, lea
         if current_step == 1 or current_step % 10 == 0 or current_step == total_steps:
             print(
                 f"Step {current_step:>3}/{total_steps} "
-                f"| Loss media: {total_loss / current_step:.4f}",
+                f"| Mean Loss: {total_loss / current_step:.4f}",
                 flush=True,
             )
     
@@ -169,12 +171,13 @@ def main():
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     print("\nStarting first epoch...\n")
+    print("===============================================\n")
 
     # Start training
     for epoch in range(epochs):
         train_loss = train_epoch(model, train_loader, device, steps, config["training"]["optimizer"], dice_loss, learning_rate=config["training"]["learning_rate"])
         
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
+        print(f"\nEpoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
         
         validate_loss, validate_metrics = validate_epoch(model, val_loader, device, dice_loss, config["training"]["metrics"])
 

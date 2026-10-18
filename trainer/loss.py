@@ -1,11 +1,11 @@
-import numpy as np
 import torch
 
 # ---------------------------------------------
 # DICE
 
 def dice(pred, target, eps=1e-6):
-    pred = pred.contiguous()
+    """Mean Dice for binary segmentation logits"""
+    pred = torch.sigmoid(pred).contiguous()
     target = target.contiguous()
     
     intersection = (pred * target).sum(dim=2).sum(dim=2)
@@ -20,20 +20,22 @@ def dice_loss(pred, target, eps=1e-6):
 # Useful Metrics
 
 def false_positive(pred, target):
-    pred = pred.contiguous()
-    target = target.contiguous()
+    """FP / (TP + FP), at probability 0.5"""
+    pred = torch.sigmoid(pred) >= 0.5
+    target = target >= 0.5
     
-    fp = ((pred == 1) & (target == 0)).sum(dim=2).sum(dim=2)
-    total_pred = (pred == 1).sum(dim=2).sum(dim=2)
+    fp = (pred & ~target).sum(dim=2).sum(dim=2)
+    total_pred = pred.sum(dim=2).sum(dim=2)
     
     return (fp.float() / (total_pred.float() + 1e-6)).mean()
 
 def true_positive(pred, target):
-    pred = pred.contiguous()
-    target = target.contiguous()
+    """TP / (TP + FN), at probability 0.5"""
+    pred = torch.sigmoid(pred) >= 0.5
+    target = target >= 0.5
     
-    tp = ((pred == 1) & (target == 1)).sum(dim=2).sum(dim=2)
-    total_target = (target == 1).sum(dim=2).sum(dim=2)
+    tp = (pred & target).sum(dim=2).sum(dim=2)
+    total_target = target.sum(dim=2).sum(dim=2)
     
     return (tp.float() / (total_target.float() + 1e-6)).mean()
 
