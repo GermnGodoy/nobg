@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from unittest.main import main
 
 from data.data import Dataset
@@ -99,6 +100,9 @@ def main():
     # Get config
     config = get_config()
 
+    checkpoint_dir = Path("./runs/checkpoints")
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     # Set Seed
     if "seed" in config["training"]:
         seed = config["training"]["seed"]
@@ -108,6 +112,7 @@ def main():
 
     # Set up logging
     if config["log_dir"] is not None:
+        Path(config["log_dir"]).parent.mkdir(parents=True, exist_ok=True)
         sys.stdout = open(config["log_dir"], "a")
         sys.stderr = open(config["log_dir"], "a")
         # clean the log file
@@ -250,7 +255,7 @@ def main():
                 "val_metrics": validate_metrics,
                 "config": config,
                 "scheduler_state_dict": scheduler.state_dict()
-            }, f"./runs/checkpoints/model_epoch_{epoch + 1}.pth")
+            }, checkpoint_dir / f"model_epoch_{epoch + 1}.pth")
             print(f"Checkpoint saved at epoch {epoch + 1}, global step {global_step}")
 
             if config["sample_images"]:
