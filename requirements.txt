@@ -1,0 +1,7 @@
+# Direct runtime dependencies, pinned to the versions installed locally.
+albumentations==2.0.8
+matplotlib==3.9.4
+numpy==2.0.2
+opencv-python-headless==5.0.0.93
+PyYAML==6.0.3
+torch==2.8.0
