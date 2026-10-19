@@ -7,7 +7,7 @@ from data.transforms import Augmenter, get_val_augmentation
 import torch
 from model.model import build_segformer
 
-from trainer.loss import dice_loss, metrics
+from trainer.loss import bce_loss, dice_loss, metrics
 from trainer.optimizer import optimizers
 from trainer.sampler import sample_images
 
@@ -207,14 +207,28 @@ def main():
     print(f"\nStarting epoch {start_epoch + 1}/{epochs}...\n")
     print("===============================================\n")
 
+    weights = config["training"].get("loss") or {}
+    dice_weight = float(weights.get("dice") or 0.0)
+    bce_weight = float(weights.get("bce") or 0.0)
+
+    if dice_weight == 0.0 and bce_weight == 0.0:
+        print("No active loss weights specified. Using Dice Loss.")
+        loss_fn = dice_loss
+    else:
+        def loss_fn(pred, target):
+            return (
+                dice_weight * dice_loss(pred, target)
+                + bce_weight * bce_loss(pred, target)
+            )
+
     # Start training
     for epoch in range(start_epoch, epochs):
-        train_loss, epoch_steps = train_epoch(model, train_loader, device, steps, optimizer, dice_loss)
+        train_loss, epoch_steps = train_epoch(model, train_loader, device, steps, optimizer, loss_fn)
         global_step += epoch_steps
         
         print(f"\nEpoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
         
-        validate_loss, validate_metrics = validate_epoch(model, val_loader, device, dice_loss, config["training"]["metrics"])
+        validate_loss, validate_metrics = validate_epoch(model, val_loader, device, loss_fn, config["training"]["metrics"])
 
         print(f"Validation Loss: {validate_loss:.4f}")
         print("Validation Metrics:")

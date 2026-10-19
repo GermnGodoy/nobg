@@ -29,9 +29,12 @@ training:
   num_workers: 4
   shuffle: true
   steps: 594
-  metrics: ["Dice", "False Positive", "True Positive"]
+  metrics: ["Dice", "BCE", "False Positive", "True Positive"]
   optimizer: "adam"
   learning_rate: 0.0003
   min_lr: 1e-6
+  loss:
+    dice: 0.5
+    bce: 0.5
 
 seed: 2811

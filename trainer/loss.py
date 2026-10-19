@@ -17,6 +17,16 @@ def dice_loss(pred, target, eps=1e-6):
     return 1 - dice(pred, target, eps)
 
 # ---------------------------------------------
+# BCE
+
+def bce(pred, target):
+    """Binary Cross Entropy for binary segmentation logits"""
+    return torch.nn.functional.binary_cross_entropy_with_logits(pred, target)
+
+def bce_loss(pred, target):
+    return bce(pred, target)
+
+# ---------------------------------------------
 # Useful Metrics
 
 def false_positive(pred, target):
@@ -43,6 +53,7 @@ def true_positive(pred, target):
 
 metrics = {
     "Dice": dice,
+    "BCE": bce,
     "False Positive": false_positive,
     "True Positive": true_positive
 }
