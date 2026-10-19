@@ -32,5 +32,6 @@ training:
   metrics: ["Dice", "False Positive", "True Positive"]
   optimizer: "adam"
   learning_rate: 0.0003
+  min_lr: 1e-6
 
 seed: 2811

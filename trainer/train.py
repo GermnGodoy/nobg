@@ -145,6 +145,10 @@ def main():
         params=model.parameters(), lr=config["training"]["learning_rate"]
     )
 
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=config["training"]["epochs"], eta_min=float(config["training"]["min_lr"])
+    )
+
     start_epoch = 0
     global_step = 0
     if checkpoint is not None:
@@ -154,6 +158,7 @@ def main():
                 f"Checkpoint uses optimizer {saved_optimizer!r}, but the configuration "
                 f"specifies {config['training']['optimizer']!r}."
             )
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"]
         global_step = checkpoint["step"]
@@ -215,6 +220,9 @@ def main():
         print("Validation Metrics:")
         for name, value in validate_metrics.items():
             print(f"\t{name}: {value:.4f}")
+        
+        scheduler.step()
+        print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}\n")
 
         if epoch % 1 == 0:
             print("\n================================================\n")
@@ -227,6 +235,7 @@ def main():
                 "val_loss": validate_loss,
                 "val_metrics": validate_metrics,
                 "config": config,
+                "scheduler_state_dict": scheduler.state_dict()
             }, f"./runs/checkpoints/model_epoch_{epoch + 1}.pth")
             print(f"Checkpoint saved at epoch {epoch + 1}, global step {global_step}")
 
@@ -234,6 +243,7 @@ def main():
                 sample_images(model, val_loader, device, epoch + 1, config["sample_images_dir"])
                 print(f"Sample images saved at epoch {epoch + 1}")
             print()
+
 
 if __name__ == "__main__":  
     main()
