@@ -2,15 +2,15 @@ import sys
 from pathlib import Path
 from unittest.main import main
 
-from data.data import Dataset
-from data.transforms import Augmenter, get_val_augmentation
+from src.nobg.data.data import Dataset
+from src.nobg.data.transforms import Augmenter, get_val_augmentation
 
 import torch
-from model.model import build_segformer
+from src.nobg.model.model import build_segformer
 
-from trainer.loss import bce_loss, dice_loss, metrics
-from trainer.optimizer import optimizers
-from trainer.sampler import sample_images
+from src.nobg.trainer.loss import bce_loss, dice_loss, metrics
+from src.nobg.trainer.optimizer import optimizers
+from src.nobg.trainer.sampler import sample_images
 
 import yaml
 

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nobg"
+version = "0.1.0"
+description = "An image background removal tool for the terminal, built with PyTorch."
+readme = "README.md"
+requires-python = ">=3.9"
+dynamic = ["dependencies"]
+
+[project.scripts]
+nobg = "nobg.cli:main"
+
+[project.urls]
+Repository = "https://github.com/GermnGodoy/nobg"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nobg", "nobg.*"]
+
+[tool.setuptools.package-data]
+nobg = ["config/*.yaml", "model/*.pth"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
