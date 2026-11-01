@@ -2,10 +2,13 @@
 
 log_dir: "./runs/logs/train.log"
 
-model: 
+model:
+  use_refiner: true
 
-# Optional .pth path: full checkpoints resume training; old files load only weights.
-pretrained:
+# Optional .pth path (e.g. ./src/nobg/model/weights.pth).
+# Full checkpoints resume the same phase; adding a refiner/changing phase loads only weights.
+pretrained: ./src/nobg/model/weights.pth
+resume: true  # Set false to load only weights, even within the same phase.
 
 augmentation:
   image_size: 256
@@ -30,11 +33,17 @@ training:
   shuffle: true
   steps: 594
   metrics: ["Dice", "BCE", "False Positive", "True Positive"]
-  optimizer: "adam"
-  learning_rate: 0.0003
+  optimizer: "adamw"
+  learning_rate: 0.0001
+  # With use_refiner: AdamW trains only the refiner by default.
+  refiner_phase: refiner  # Optional second phase: decoder (encoder stays frozen).
+  refiner_learning_rate: 0.0001
+  decoder_learning_rate: 0.00001
   min_lr: 1e-6
+  boundary_kernel_size: 7
   loss:
     dice: 0.5
     bce: 0.5
+    boundary: 0.0  # Optional; use dice: 1, bce: 1, boundary: 0.5 for BCE + Dice + 0.5 BoundaryBCE.
 
 seed: 2811
