@@ -1,14 +1,13 @@
 import sys
 from pathlib import Path
-from unittest.main import main
 
 from src.nobg.data.data import Dataset
 from src.nobg.data.transforms import Augmenter, get_val_augmentation
 
 import torch
-from src.nobg.model.model import build_segformer
+from src.nobg.model.model import build_segformer, load_segformer_weights
 
-from src.nobg.trainer.loss import bce_loss, dice_loss, metrics
+from src.nobg.trainer.loss import bce_loss, dice_loss, edge_loss, metrics
 from src.nobg.trainer.optimizer import optimizers
 from src.nobg.trainer.sampler import sample_images
 
@@ -19,12 +18,53 @@ import time
 # ---------------------------------------------
 # Read Configuration
 
-_CONFIG = "config/train.yaml"
+_CONFIG = Path(__file__).resolve().parents[1] / "config" / "train.yaml"
 
 def get_config():
     with open(_CONFIG, "r") as f:
         config = yaml.safe_load(f)
     return config
+
+
+def restore_training_state(model, optimizer, scheduler, config, checkpoint):
+    """Resume the same phase; start fresh when adding the refiner or changing phase."""
+    if checkpoint is None or not config.get("resume", True):
+        return 0, 0
+    saved_refiner = any(key.startswith("refiner.") for key in checkpoint["model_state_dict"])
+    saved_training = checkpoint["config"]["training"]
+    saved_phase = saved_training.get("refiner_phase", "refiner") if saved_refiner else None
+    if saved_refiner != model.use_refiner or saved_phase != model.refiner_phase:
+        print("Starting a new refiner phase from loaded weights; optimizer and counters reset.")
+        return 0, 0
+    saved_optimizer = saved_training["optimizer"]
+    if saved_optimizer != config["training"]["optimizer"]:
+        raise ValueError(
+            f"Checkpoint uses optimizer {saved_optimizer!r}, but the configuration "
+            f"specifies {config['training']['optimizer']!r}. Set resume: false to load only weights."
+        )
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    return checkpoint["epoch"], checkpoint["step"]
+
+
+def build_loss(training):
+    weights = training.get("loss") or {}
+    dice_weight = float(weights.get("dice") or 0.0)
+    bce_weight = float(weights.get("bce") or 0.0)
+    edge_weight = float(weights.get("boundary") or 0.0)
+    if dice_weight == 0.0 and bce_weight == 0.0:
+        print("No active base loss weights specified. Using Dice Loss.")
+        dice_weight = 1.0
+
+    def loss_fn(pred, target):
+        loss = dice_weight * dice_loss(pred, target) + bce_weight * bce_loss(pred, target)
+        if edge_weight:
+            loss = loss + edge_weight * edge_loss(
+                pred, target, kernel_size=training.get("boundary_kernel_size", 7),
+            )
+        return loss
+
+    return loss_fn
 
 # ---------------------------------------------
 # Train Epoch
@@ -139,34 +179,40 @@ def main():
         saved_state = torch.load(config["pretrained"], map_location="cpu", weights_only=True)
         if "model_state_dict" in saved_state:
             checkpoint = saved_state
-            model.load_state_dict(checkpoint["model_state_dict"])
+            load_segformer_weights(model, checkpoint["model_state_dict"])
         else:
-            model.load_state_dict(saved_state)
+            load_segformer_weights(model, saved_state)
         
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else
+                          "mps" if torch.backends.mps.is_available() else "cpu")
     model.to(device)
 
-    optimizer = optimizers[config["training"]["optimizer"]](
-        params=model.parameters(), lr=config["training"]["learning_rate"]
-    )
+    training = config["training"]
+    if model.use_refiner:
+        model.configure_refiner_training(training.get("refiner_phase", "refiner"))
+        groups = [{
+            "params": model.refiner.parameters(),
+            "lr": float(training.get("refiner_learning_rate", 1e-4)),
+        }]
+        if model.refiner_phase == "decoder":
+            groups.append({
+                "params": model.decoder.parameters(),
+                "lr": float(training.get("decoder_learning_rate", 1e-5)),
+            })
+        # Save the effective optimizer in the existing checkpoint configuration.
+        training["optimizer"] = "adamw"
+        optimizer = optimizers["adamw"](groups)
+    else:
+        optimizer = optimizers[training["optimizer"]](
+            params=model.parameters(), lr=training["learning_rate"],
+        )
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=config["training"]["epochs"], eta_min=float(config["training"]["min_lr"])
     )
 
-    start_epoch = 0
-    global_step = 0
-    if checkpoint is not None:
-        saved_optimizer = checkpoint["config"]["training"]["optimizer"]
-        if saved_optimizer != config["training"]["optimizer"]:
-            raise ValueError(
-                f"Checkpoint uses optimizer {saved_optimizer!r}, but the configuration "
-                f"specifies {config['training']['optimizer']!r}."
-            )
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        start_epoch = checkpoint["epoch"]
-        global_step = checkpoint["step"]
+    start_epoch, global_step = restore_training_state(model, optimizer, scheduler, config, checkpoint)
+    if start_epoch:
         print(f"Resuming after epoch {start_epoch}, global step {global_step}")
 
     print(f"\nTrainable parameters {len([p for p in model.parameters() if p.requires_grad])}")
@@ -212,19 +258,7 @@ def main():
     print(f"\nStarting epoch {start_epoch + 1}/{epochs}...\n")
     print("===============================================\n")
 
-    weights = config["training"].get("loss") or {}
-    dice_weight = float(weights.get("dice") or 0.0)
-    bce_weight = float(weights.get("bce") or 0.0)
-
-    if dice_weight == 0.0 and bce_weight == 0.0:
-        print("No active loss weights specified. Using Dice Loss.")
-        loss_fn = dice_loss
-    else:
-        def loss_fn(pred, target):
-            return (
-                dice_weight * dice_loss(pred, target)
-                + bce_weight * bce_loss(pred, target)
-            )
+    loss_fn = build_loss(config["training"])
 
     # Start training
     for epoch in range(start_epoch, epochs):

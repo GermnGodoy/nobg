@@ -18,7 +18,12 @@ def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample"):
 
         for i, (images, masks) in enumerate(val_loader): # we will only take the first
             images = images[:1].to(device)
-            outputs = model(images)
+            use_refiner = getattr(model, "use_refiner", False)
+            if use_refiner:
+                outputs, original_logits = model(images, return_original=True)
+                original_alpha = original_logits.sigmoid()[0, 0].cpu().numpy()
+            else:
+                outputs = model(images)
             preds = torch.sigmoid(outputs)
             
             img = images[0].cpu().permute(1, 2, 0).numpy()
@@ -31,20 +36,27 @@ def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample"):
             alpha = preds[0, 0].cpu().numpy()
             pred = np.dstack((img, alpha))
             
-            plt.figure(figsize=(12, 4))
-            plt.subplot(1, 3, 1)
+            columns = 4 if use_refiner else 3
+            plt.figure(figsize=(4 * columns, 4))
+            plt.subplot(1, columns, 1)
             plt.imshow(img)
             plt.title("Image")
             plt.axis('off')
             
-            plt.subplot(1, 3, 2)
+            plt.subplot(1, columns, 2)
             plt.imshow(mask, cmap='gray', vmin=0, vmax=1)
             plt.title("Mask")
             plt.axis('off')
             
-            plt.subplot(1, 3, 3)
+            if use_refiner:
+                plt.subplot(1, columns, 3)
+                plt.imshow(np.dstack((img, original_alpha)))
+                plt.title("SegFormer")
+                plt.axis('off')
+
+            plt.subplot(1, columns, columns)
             plt.imshow(pred)
-            plt.title("Prediction")
+            plt.title("Refined" if use_refiner else "Prediction")
             plt.axis('off')
             
             plt.tight_layout()

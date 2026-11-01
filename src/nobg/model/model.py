@@ -1,9 +1,12 @@
 import math
+from contextlib import nullcontext
 from numbers import Integral, Real
 
 from torch import nn
 import torch
 from torch.nn import functional as F
+
+from .refiner import SegFormerRefiner
 
 # ---------------------------------------------
 # Checkers
@@ -361,11 +364,14 @@ class SegFormerDecoder(nn.Module):
 class SegFormer(nn.Module):
     """From-scratch encoder and decoder returning raw segmentation logits.
 
-    By default logits are resized to the image size. Pass upsample_logits=False to obtain the native decoder resolution. Apply softmax only for probabilities, not before CrossEntropyLoss.
+    By default logits are resized to the image size. Pass upsample_logits=False
+    to obtain the native decoder resolution without a refiner. The optional binary
+    refiner always returns full-resolution logits. Apply sigmoid (binary) or
+    softmax (multiclass) only when probabilities are needed.
     """
 
     def __init__(self, num_classes=2, decoder_dim=256, decoder_dropout=0.0,
-                 upsample_logits=True, **encoder_kwargs):
+                 upsample_logits=True, use_refiner=False, **encoder_kwargs):
         super().__init__()
         
         self.encoder = MiTEncoder(**encoder_kwargs)
@@ -374,24 +380,68 @@ class SegFormer(nn.Module):
             num_classes=num_classes, dropout=decoder_dropout,
         )
         self.upsample_logits = upsample_logits
+        self.use_refiner = use_refiner
+        self.refiner_phase = None
+        if use_refiner and (num_classes != 1 or self.encoder.in_channels != 3):
+            raise ValueError("The refiner requires binary logits and three-channel images")
+        self.refiner = SegFormerRefiner(self.encoder.embed_dims[0]) if use_refiner else None
 
-    def forward(self, x):
-        features = self.encoder(x)
-        logits = self.decoder(features)
+    def configure_refiner_training(self, phase="refiner"):
+        """Freeze the encoder; optionally train the decoder in a second phase."""
+        if not self.use_refiner or phase not in ("refiner", "decoder"):
+            raise ValueError("Refiner training requires use_refiner=True and phase 'refiner' or 'decoder'")
+        self.refiner_phase = phase
+        self.encoder.requires_grad_(False)
+        self.decoder.requires_grad_(phase == "decoder")
+        self.refiner.requires_grad_(True)
+        self.zero_grad(set_to_none=True)
+        self.train(self.training)
+
+    def train(self, mode=True):
+        super().train(mode)
+        if self.refiner_phase is not None:
+            self.encoder.eval()
+            if self.refiner_phase == "refiner":
+                self.decoder.eval()
+        return self
+
+    def forward(self, x, return_original=False):
+        with torch.no_grad() if self.refiner_phase is not None else nullcontext():
+            features = self.encoder(x)
+        with torch.no_grad() if self.refiner_phase == "refiner" else nullcontext():
+            logits = self.decoder(features)
+        if self.use_refiner:
+            final_logits = self.refiner(features[0], logits, x)
+            if return_original:
+                original = F.interpolate(logits, size=x.shape[-2:],
+                                         mode="bilinear", align_corners=False)
+                return final_logits, original
+            return final_logits
         if self.upsample_logits:
             logits = F.interpolate(logits, size=x.shape[-2:],
                                    mode="bilinear", align_corners=False)
-        return logits
+        return (logits, logits) if return_original else logits
 
 
 # ---------------------------------------------
 # Builders
 
 def build_segformer(num_classes=1, decoder_dim=256, decoder_dropout=0.1,
-                    upsample_logits=True, **encoder_kwargs):
+                    upsample_logits=True, use_refiner=False, **encoder_kwargs):
     """Build a SegFormer model with the given configuration."""
     return SegFormer(
         num_classes=num_classes, decoder_dim=decoder_dim,
         decoder_dropout=decoder_dropout, upsample_logits=upsample_logits,
+        use_refiner=use_refiner,
         **encoder_kwargs
     )
+
+
+def load_segformer_weights(model, state_dict):
+    """Load strictly, allowing only the complete absence of a new refiner."""
+    if model.use_refiner and not any(key.startswith("refiner.") for key in state_dict):
+        state_dict = {
+            **{f"refiner.{key}": value for key, value in model.refiner.state_dict().items()},
+            **state_dict,
+        }
+    return model.load_state_dict(state_dict)
