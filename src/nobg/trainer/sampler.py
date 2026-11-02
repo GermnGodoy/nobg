@@ -6,7 +6,7 @@ from pathlib import Path
 # ---------------------------------------------
 # Sample Images
 
-def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample"):
+def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample", dpi=100):
     """Sample one image and save it to disk for visualization."""
     
     output_dir = Path(output_dir)
@@ -60,7 +60,7 @@ def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample"):
             plt.axis('off')
             
             plt.tight_layout()
-            plt.savefig(output_dir / f"sample_epoch_{epoch}_batch_{i}.png")
+            plt.savefig(output_dir / f"sample_epoch_{epoch}_batch_{i}.png", dpi=dpi)
             plt.close()
             
             break

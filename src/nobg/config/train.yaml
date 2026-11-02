@@ -1,21 +1,24 @@
 
 
-log_dir: "./runs/logs/train.log"
+log_dir: "./runs/refiner_512/logs/train.log"
+checkpoint_dir: "./runs/refiner_512/checkpoints"
 
 model:
   use_refiner: true
 
-# Optional .pth path (e.g. ./src/nobg/model/weights.pth).
-# Full checkpoints resume the same phase; adding a refiner/changing phase loads only weights.
+# Start a new 512px refiner from the existing SegFormer weights.
 pretrained: ./src/nobg/model/weights.pth
-resume: true  # Set false to load only weights, even within the same phase.
+# To resume this experiment, select its checkpoint above and set this to true.
+resume: false
 
 augmentation:
-  image_size: 256
+  image_size: 512
   hflip_prob: 0.5 
   vflip_prob: 0.2
   rotate_prob: 0.5
   crop_prob: 0.5
+  crop_before_resize: true  # Crop the original image before reducing its detail.
+  crop_scale: [0.5, 1.0]  # Retain 50-100% of the original image area.
   brightness_contrast_prob: 0.3
   rotate_limit: 20
 
@@ -23,16 +26,18 @@ mask_path: "./images/DUTS-TR/DUTS-TR-Mask"
 image_path: "./images/DUTS-TR/DUTS-TR-Image"
 
 sample_images: true
-sample_images_dir: "./runs/sample"
+sample_images_dir: "./runs/refiner_512/sample"
+sample_images_dpi: 160  # Keep the 512px contour details visible in the comparison.
 
 training:
   # Total number of epochs, including those completed in a loaded checkpoint.
   epochs: 80
-  batch_size: 16
+  batch_size: 4
   num_workers: 4
   shuffle: true
-  steps: 594
-  metrics: ["Dice", "BCE", "False Positive", "True Positive"]
+  steps: null  # Use every training batch, including with the smaller batch size.
+  metrics: ["Dice", "BCE", "False Positive", "True Positive", "Boundary F1"]
+  compare_original: true  # Report the same metrics before the residual correction.
   optimizer: "adamw"
   learning_rate: 0.0001
   # With use_refiner: AdamW trains only the refiner by default.
@@ -40,10 +45,10 @@ training:
   refiner_learning_rate: 0.0001
   decoder_learning_rate: 0.00001
   min_lr: 1e-6
-  boundary_kernel_size: 7
+  boundary_kernel_size: 13  # Same relative band radius as 7x7 at 256px.
   loss:
-    dice: 0.5
-    bce: 0.5
-    boundary: 0.0  # Optional; use dice: 1, bce: 1, boundary: 0.5 for BCE + Dice + 0.5 BoundaryBCE.
+    dice: 1.0
+    bce: 1.0
+    boundary: 0.5
 
 seed: 2811

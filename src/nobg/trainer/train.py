@@ -108,16 +108,22 @@ def train_epoch(model, train_loader, device, steps, optimizer, loss_fn):
 # ---------------------------------------------
 # Validate Epoch
 
-def validate_epoch(model, val_loader, device, loss_fn, metric_names):
+def validate_epoch(model, val_loader, device, loss_fn, metric_names, compare_original=False):
     model.eval()
     total_loss = 0.0
     metric_sums = {name: 0.0 for name in metric_names}
+    compare_original = compare_original and getattr(model, "use_refiner", False)
+    if compare_original:
+        metric_sums.update({f"SegFormer {name}": 0.0 for name in metric_names})
     
     with torch.no_grad():
         for step, (images, masks) in enumerate(val_loader):
             images, masks = images.to(device), masks.to(device)
 
-            outputs = model(images)
+            if compare_original:
+                outputs, original = model(images, return_original=True)
+            else:
+                outputs = model(images)
             loss = loss_fn(outputs, masks)
             total_loss += loss.item()
             
@@ -125,9 +131,11 @@ def validate_epoch(model, val_loader, device, loss_fn, metric_names):
                 metric_fn = metrics[name]
                 metric_value = metric_fn(outputs, masks)
                 metric_sums[name] += metric_value.item()
+                if compare_original:
+                    metric_sums[f"SegFormer {name}"] += metric_fn(original, masks).item()
     
     avg_loss = total_loss / (step + 1)
-    avg_metrics = {name: metric_sums[name] / (step + 1) for name in metric_names}
+    avg_metrics = {name: total / (step + 1) for name, total in metric_sums.items()}
     
     return avg_loss, avg_metrics
 
@@ -140,12 +148,12 @@ def main():
     # Get config
     config = get_config()
 
-    checkpoint_dir = Path("./runs/checkpoints")
+    checkpoint_dir = Path(config.get("checkpoint_dir", "./runs/checkpoints"))
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # Set Seed
-    if "seed" in config["training"]:
-        seed = config["training"]["seed"]
+    seed = config.get("seed", config["training"].get("seed"))
+    if seed is not None:
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         print(f"Seed set to {seed}\n")
@@ -215,7 +223,7 @@ def main():
     if start_epoch:
         print(f"Resuming after epoch {start_epoch}, global step {global_step}")
 
-    print(f"\nTrainable parameters {len([p for p in model.parameters() if p.requires_grad])}")
+    print(f"\nTrainable parameters {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     
     # Dataset and loading
     epochs = config["training"]["epochs"]
@@ -234,7 +242,7 @@ def main():
 
     num_workers = config["training"]["num_workers"] if "num_workers" in config["training"] else 1
 
-    augmenter = Augmenter(**config["augmentation"])
+    augmenter = Augmenter(**config["augmentation"], seed=seed)
     val_aug = get_val_augmentation(config["augmentation"]["image_size"])
 
     train_data = Dataset(mask_path, image_path, transform=augmenter)
@@ -267,7 +275,10 @@ def main():
         
         print(f"\nEpoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
         
-        validate_loss, validate_metrics = validate_epoch(model, val_loader, device, loss_fn, config["training"]["metrics"])
+        validate_loss, validate_metrics = validate_epoch(
+            model, val_loader, device, loss_fn, config["training"]["metrics"],
+            compare_original=config["training"].get("compare_original", False),
+        )
 
         print(f"Validation Loss: {validate_loss:.4f}")
         print("Validation Metrics:")
@@ -293,7 +304,10 @@ def main():
             print(f"Checkpoint saved at epoch {epoch + 1}, global step {global_step}")
 
             if config["sample_images"]:
-                sample_images(model, val_loader, device, epoch + 1, config["sample_images_dir"])
+                sample_images(
+                    model, val_loader, device, epoch + 1, config["sample_images_dir"],
+                    dpi=config.get("sample_images_dpi", 100),
+                )
                 print(f"Sample images saved at epoch {epoch + 1}")
             print()
 
