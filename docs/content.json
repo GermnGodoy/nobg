@@ -1,0 +1,311 @@
+{
+  "meta": {
+    "title": "nobg — architecture notes",
+    "description": "A visual guide to the nobg image background removal pipeline, model architecture, and training code."
+  },
+  "ui": {
+    "brand": "nobg",
+    "skipLink": "Skip to content",
+    "sourceLink": "GitHub source",
+    "diagramHint": "Scroll sideways to see the full diagram.",
+    "footerText": "An architecture guide for a project in development.",
+    "footerLink": "View the repository",
+    "status": "In development",
+    "metaText": "PyTorch · terminal tool · background removal",
+    "diagramUnavailable": "The diagram could not load. The explanation below is still available.",
+    "externalMark": "↗"
+  },
+  "nav": [
+    {
+      "label": "Overview",
+      "href": "#overview"
+    },
+    {
+      "label": "Pipeline",
+      "href": "#pipeline"
+    },
+    {
+      "label": "Model",
+      "href": "#architecture"
+    },
+    {
+      "label": "Training",
+      "href": "#training"
+    },
+    {
+      "label": "Code",
+      "href": "#code"
+    }
+  ],
+  "overview": {
+    "eyebrow": "A small technical guide",
+    "title": "nobg.",
+    "lede": "Light background for CLI usage",
+    "paragraphs": [
+      "nobg is a terminal tool that removes image backgrounds. It is written in PyTorch, using a custom model inspired by SegFormer, an architecture for image segmentation."
+    ]
+  },
+  "pipeline": {
+    "eyebrow": "01 / Inference",
+    "title": "From image to transparent PNG",
+    "intro": "The command-line tool runs one image through the network, builds a foreground mask, and writes a PNG with transparency.",
+    "stepsHeading": "What each step does",
+    "steps": [
+      {
+        "title": "Image",
+        "description": "Read the image from disk. Keep its original dimensions for the final PNG.",
+        "number": "01"
+      },
+      {
+        "title": "Preprocessing",
+        "description": "Resize to the model input size and normalize pixel values so the network receives consistent inputs.",
+        "number": "02"
+      },
+      {
+        "title": "Encoder",
+        "description": "Extract visual features at four scales. A feature is a learned number that helps describe an area of the image.",
+        "number": "03"
+      },
+      {
+        "title": "Decoder",
+        "description": "Combine the four scales to predict one foreground score for each position in a low-resolution grid.",
+        "number": "04"
+      },
+      {
+        "title": "Optional refiner",
+        "description": "Use the image and early features to correct the decoder prediction. It is designed to improve local detail, especially around edges.",
+        "number": "05"
+      },
+      {
+        "title": "Mask",
+        "description": "Sigmoid converts scores to values from 0 to 1. The CLI uses a 0.5 threshold by default, or keeps soft values with --alpha.",
+        "number": "06"
+      },
+      {
+        "title": "Transparent PNG",
+        "description": "Resize the mask to the original image dimensions. Save it as the PNG alpha channel, which controls transparency.",
+        "number": "07"
+      }
+    ]
+  },
+  "architecture": {
+    "eyebrow": "02 / Network",
+    "title": "Model architecture",
+    "intro": "The model has three main parts, a four stage encoder, one decoder, and a mask refiner",
+    "diagram": {
+      "caption": "Solid arrows show the main path. Dashed arrows show extra inputs to the refiner and the path used when refinement is disabled.",
+      "labels": {
+        "input": "Input image",
+        "encoder": "MiT encoder · overlapping patches, reduced attention, MixFFN",
+        "stage1": "Stage 1 · 32 channels",
+        "stage2": "Stage 2 · 64 channels",
+        "stage3": "Stage 3 · 160 channels",
+        "stage4": "Stage 4 · 256 channels",
+        "project1": "Project + resize · S1",
+        "project2": "Project + resize · S2",
+        "project3": "Project + resize · S3",
+        "project4": "Project + resize · S4",
+        "fusion": "Combine four feature maps",
+        "foreground": "One-channel prediction",
+        "refiner": "Optional conv refiner",
+        "addition": "Add learned correction",
+        "sigmoid": "Sigmoid · 0 to 1",
+        "without": "Without refiner"
+      }
+    },
+    "explainHeading": "How the parts fit together",
+    "explanations": [
+      {
+        "title": "MiT encoder",
+        "description": "The image passes through four stages, each at a smaller resolution. The first stages keep more spatial detail; the later ones capture larger shapes. The stages output 32, 64, 160, and 256 channels."
+      },
+      {
+        "title": "Transformer blocks",
+        "description": "Each stage starts with overlapping image patches. Attention helps different parts of the image share information, while spatial reduction keeps the work manageable. MixFFN also mixes information from nearby positions."
+      },
+      {
+        "title": "Decoder",
+        "description": "The decoder takes the four feature maps, resizes them to the same grid, and combines them. From that, it makes the first foreground prediction."
+      },
+      {
+        "title": "Optional refiner",
+        "description": "The first prediction may lose detail around edges. The refiner looks at the image, the first encoder feature map, and the decoder prediction to learn a correction. That correction is added before sigmoid produces the mask."
+      }
+    ],
+    "detailsHeading": "More technical detail",
+    "details": [
+      {
+        "title": "Tensor shapes at a 256 × 256 input",
+        "paragraphs": [
+          "A tensor is a multi-dimensional array. B is the number of images in a batch. C is the number of channels; H and W are height and width.",
+          "These dimensions describe the default encoder and binary decoder."
+        ],
+        "rows": [
+          {
+            "label": "Input",
+            "value": "B × 3 × 256 × 256"
+          },
+          {
+            "label": "Stage 1",
+            "value": "B × 32 × 64 × 64"
+          },
+          {
+            "label": "Stage 2",
+            "value": "B × 64 × 32 × 32"
+          },
+          {
+            "label": "Stage 3",
+            "value": "B × 160 × 16 × 16"
+          },
+          {
+            "label": "Stage 4",
+            "value": "B × 256 × 8 × 8"
+          },
+          {
+            "label": "Decoder projections",
+            "value": "Four maps, each B × 256 × 64 × 64 after resizing"
+          },
+          {
+            "label": "Concatenated map",
+            "value": "B × 1024 × 64 × 64"
+          },
+          {
+            "label": "Initial prediction",
+            "value": "B × 1 × 64 × 64"
+          },
+          {
+            "label": "Final prediction",
+            "value": "B × 1 × 256 × 256 with the refiner, or after standard upsampling"
+          }
+        ]
+      },
+      {
+        "title": "Inside a MiT stage",
+        "paragraphs": [
+          "Each stage begins with an overlapping convolutional patch embedding and contains two transformer blocks in the default model. Within each block, attention and MixFFN each have a skip connection.",
+          "For attention, queries come from the full grid. Keys and values can come from a smaller grid. This reduces memory and computation."
+        ],
+        "rows": [
+          {
+            "label": "Patch embedding",
+            "value": "First stage: 7 × 7 kernel, stride 4. Later stages: 3 × 3 kernel, stride 2."
+          },
+          {
+            "label": "Attention heads",
+            "value": "1 / 2 / 5 / 8 by stage"
+          },
+          {
+            "label": "Spatial reduction",
+            "value": "8 / 4 / 2 / 1 by stage"
+          },
+          {
+            "label": "Blocks per stage",
+            "value": "2 / 2 / 2 / 2"
+          },
+          {
+            "label": "MixFFN",
+            "value": "Linear layer, 3 × 3 depthwise convolution, GELU, then linear layer"
+          }
+        ]
+      },
+      {
+        "title": "Decoder and refiner blocks",
+        "paragraphs": [
+          "The decoder projects each scale to 256 channels, resizes to the 64 × 64 grid, concatenates, and fuses with a 1 × 1 convolution. A final 1 × 1 convolution produces the foreground score, also called a logit.",
+          "The refiner uses three resolutions: quarter, half, and full input size. Its convolution blocks use GroupNorm and SiLU. The last correction layer starts at zero, so refinement initially leaves the decoder output unchanged."
+        ],
+        "rows": [
+          {
+            "label": "Decoder output",
+            "value": "A single logit for each foreground location"
+          },
+          {
+            "label": "Refiner inputs",
+            "value": "Stage 1 features, raw decoder logits, and the RGB image"
+          },
+          {
+            "label": "Refiner scales",
+            "value": "64 × 64, 128 × 128, and 256 × 256 for a 256 × 256 input"
+          },
+          {
+            "label": "Residual result",
+            "value": "Upsampled decoder logits + learned one-channel correction"
+          },
+          {
+            "label": "Probability",
+            "value": "Sigmoid maps each final logit to a value between 0 and 1"
+          }
+        ]
+      }
+    ]
+  },
+  "training": {
+    "eyebrow": "03 / Learning",
+    "title": "Training",
+    "intro": "During training, the model sees an image and a reference mask. It predicts its own mask, measures the difference, and updates the parameters that are allowed to learn.",
+    "datasetHeading": "Data and feedback",
+    "datasetParagraphs": [
+      "DUTS is a dataset of photographs paired with masks that mark the main visible object. The current training paths use DUTS-TR, its training set.",
+      "Augmentation makes changed versions of training images, such as flips, rotations, crops, and brightness changes. The matching masks receive the same geometric changes.",
+      "Validation checks the model on a held-out 10% split of DUTS-TR without random training augmentations. A checkpoint saves model and training state after each epoch. Visual samples compare images, reference masks, and predictions."
+    ],
+    "lossHeading": "Used losses",
+    "lossExplanations": [
+      {
+        "title": "Dice loss",
+        "description": "Measures region overlap between the predicted foreground and the reference foreground. More overlap means lower loss."
+      },
+      {
+        "title": "BCE",
+        "description": "Binary cross-entropy measures pixel-level prediction error. It penalizes confident wrong foreground or background predictions."
+      }
+    ]
+  },
+  "codeMap": {
+    "eyebrow": "04 / Repository",
+    "title": "Code map",
+    "intro": "The implementation lives under src/nobg/. Each file below has one main responsibility.",
+    "files": [
+      {
+        "path": "model/model.py",
+        "description": "Encoder, transformer blocks, decoder, and full model wiring."
+      },
+      {
+        "path": "model/refiner.py",
+        "description": "Three-resolution convolutional refiner and learned residual correction."
+      },
+      {
+        "path": "data/data.py",
+        "description": "Loads image and mask pairs, checking that filenames match."
+      },
+      {
+        "path": "data/transforms.py",
+        "description": "Training augmentation and deterministic validation preprocessing."
+      },
+      {
+        "path": "trainer/train.py",
+        "description": "Training loop, validation, phase selection, checkpoints, and sampling calls."
+      },
+      {
+        "path": "trainer/loss.py",
+        "description": "Dice, BCE, optional boundary loss, and validation metrics."
+      },
+      {
+        "path": "trainer/optimizer.py",
+        "description": "Optimizer choices, including the currently used AdamW."
+      },
+      {
+        "path": "trainer/sampler.py",
+        "description": "Saves visual comparisons of inputs, masks, and predictions."
+      },
+      {
+        "path": "config/train.yaml",
+        "description": "Current training parameters and selected refiner phase."
+      },
+      {
+        "path": "cli.py",
+        "description": "Loads weights, predicts a mask, restores original dimensions, and writes a transparent PNG."
+      }
+    ]
+  }
+}

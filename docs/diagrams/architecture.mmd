@@ -1,0 +1,27 @@
+flowchart TB
+  I["{{input}}"]
+  subgraph ENC ["{{encoder}}"]
+    direction LR
+    S1["{{stage1}}"] --> S2["{{stage2}}"]
+    S2 --> S3["{{stage3}}"]
+    S3 --> S4["{{stage4}}"]
+  end
+  I --> S1
+  S1 --> P1["{{project1}}"]
+  S2 --> P2["{{project2}}"]
+  S3 --> P3["{{project3}}"]
+  S4 --> P4["{{project4}}"]
+  P1 --> F["{{fusion}}"]
+  P2 --> F
+  P3 --> F
+  P4 --> F
+  F --> O["{{foreground}}"]
+  O --> R["{{refiner}}"]
+  I -.-> R
+  S1 -.-> R
+  R --> A["{{addition}}"]
+  O --> A
+  A --> Z["{{sigmoid}}"]
+  O -. {{without}} .-> Z
+  classDef accent fill:#edf2ed,stroke:#729584,color:#243a30,stroke-width:1.5px
+  class I,R,Z accent
