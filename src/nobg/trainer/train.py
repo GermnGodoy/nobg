@@ -167,8 +167,8 @@ def main():
     # Set up logging
     if config["log_dir"] is not None:
         Path(config["log_dir"]).parent.mkdir(parents=True, exist_ok=True)
-        sys.stdout = open(config["log_dir"], "a")
-        sys.stderr = open(config["log_dir"], "a")
+        sys.stdout = open(config["log_dir"], "a", buffering=1)
+        sys.stderr = open(config["log_dir"], "a", buffering=1)
         # clean the log file
         with open(config["log_dir"], "w") as f:
             f.write("")
@@ -199,6 +199,7 @@ def main():
         
     device = torch.device("cuda" if torch.cuda.is_available() else
                           "mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Using device: {device}")
     model.to(device)
 
     training = config["training"]
@@ -248,6 +249,7 @@ def main():
 
     num_workers = config["training"]["num_workers"] if "num_workers" in config["training"] else 1
 
+    print("Preparing data augmentation...")
     augmenter = Augmenter(**config["augmentation"], seed=seed)
     val_aug = get_val_augmentation(
         config["augmentation"]["image_size"],
@@ -259,9 +261,11 @@ def main():
     if bool(val_mask_path) != bool(val_image_path):
         raise ValueError("Set both val_mask_path and val_image_path, or omit both to split the training data.")
 
+    print(f"Indexing training images: {image_path}")
     train_data = Dataset(mask_path, image_path, transform=augmenter)
     if val_mask_path and val_image_path:
         train_dataset = train_data
+        print(f"Indexing validation images: {val_image_path}")
         val_dataset = Dataset(val_mask_path, val_image_path, transform=val_aug)
     else:
         val_data = Dataset(mask_path, image_path, transform=val_aug)
@@ -277,6 +281,7 @@ def main():
         train_dataset = torch.utils.data.Subset(train_data, train_indices)
         val_dataset = torch.utils.data.Subset(val_data, val_indices)
 
+    print(f"Dataset ready: {len(train_dataset)} training, {len(val_dataset)} validation samples")
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
