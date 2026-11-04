@@ -8,7 +8,7 @@ from pathlib import Path
 
 class Dataset(torch.utils.data.Dataset):
     """
-    A class to represent a dataset.
+    Image/alpha pairs matched by filename stem; unpaired files are skipped.
     """
     
     def __init__(self, mask_path, image_path, transform=None):
@@ -21,8 +21,22 @@ class Dataset(torch.utils.data.Dataset):
 
         if not self.mask_routes or not self.image_routes:
             raise ValueError(f"No image/mask pairs found in {self.image_path} and {self.mask_path}.")
-        if [Path(p).stem for p in self.mask_routes] != [Path(p).stem for p in self.image_routes]:
-            raise ValueError("Mask and image filenames do not match.")
+
+        masks = {path.stem: path for path in self.mask_routes}
+        images = {path.stem: path for path in self.image_routes}
+        if len(images) != len(self.image_routes):
+            raise ValueError(f"Multiple images share the same filename stem in {self.image_path}.")
+        names = sorted(images.keys() & masks.keys())
+        if not names:
+            raise ValueError(f"No matching image/mask pairs found in {self.image_path} and {self.mask_path}.")
+
+        skipped_images = len(images) - len(names)
+        skipped_masks = len(masks) - len(names)
+        if skipped_images or skipped_masks:
+            print(f"Skipping unpaired files in {self.image_path} / {self.mask_path}: "
+                  f"{skipped_images} images, {skipped_masks} alphas.")
+        self.image_routes = [images[name] for name in names]
+        self.mask_routes = [masks[name] for name in names]
 
     __len__ = lambda self: min(len(self.mask_routes), len(self.image_routes))
 
