@@ -1,12 +1,13 @@
 
 
-log_dir: "./runs/refiner_512/logs/train.log"
-checkpoint_dir: "./runs/refiner_512/checkpoints"
+log_dir: "./runs/decoder_512/logs/train.log"
+checkpoint_dir: "./runs/decoder_512/checkpoints"
 
 model:
   use_refiner: true
 
-# Start a new 512px refiner from the existing SegFormer weights.
+# Load the existing SegFormer weights; initialize the refiner if none are included.
+# A saved refiner checkpoint can also be used here to retain its learned weights.
 pretrained: ./src/nobg/model/weights.pth
 # To resume this experiment, select its checkpoint above and set this to true.
 resume: false
@@ -26,22 +27,22 @@ mask_path: "./images/DUTS-TR/DUTS-TR-Mask"
 image_path: "./images/DUTS-TR/DUTS-TR-Image"
 
 sample_images: true
-sample_images_dir: "./runs/refiner_512/sample"
+sample_images_dir: "./runs/decoder_512/sample"
 sample_images_dpi: 160  # Keep the 512px contour details visible in the comparison.
 
 training:
-  # Total number of epochs, including those completed in a loaded checkpoint.
-  epochs: 80
+  # New fine-tuning phase: start at epoch 1 and evaluate over 20 epochs.
+  epochs: 20
   batch_size: 4
   num_workers: 4
   shuffle: true
   steps: null  # Use every training batch, including with the smaller batch size.
   metrics: ["Dice", "BCE", "False Positive", "True Positive", "Boundary F1"]
-  compare_original: true  # Report the same metrics before the residual correction.
+  compare_original: true  # Metrics before the residual correction; the decoder now learns too.
   optimizer: "adamw"
   learning_rate: 0.0001
-  # With use_refiner: AdamW trains only the refiner by default.
-  refiner_phase: refiner  # Optional second phase: decoder (encoder stays frozen).
+  # Train decoder and refiner together; the encoder remains frozen.
+  refiner_phase: decoder
   refiner_learning_rate: 0.0001
   decoder_learning_rate: 0.00001
   min_lr: 1e-6
