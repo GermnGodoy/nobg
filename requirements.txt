@@ -5,3 +5,5 @@ numpy==2.0.2
 opencv-python-headless==5.0.0.93
 PyYAML==6.0.3
 torch==2.8.0
+huggingface-hub==0.23.4
+pillow==10.4.0
