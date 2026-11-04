@@ -36,7 +36,7 @@ def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample", 
             alpha = preds[0, 0].cpu().numpy()
             pred = np.dstack((img, alpha))
             
-            columns = 4 if use_refiner else 3
+            columns = 5 if use_refiner else 4
             plt.figure(figsize=(4 * columns, 4))
             plt.subplot(1, columns, 1)
             plt.imshow(img)
@@ -45,11 +45,16 @@ def sample_images(model, val_loader, device, epoch, output_dir="./runs/sample", 
             
             plt.subplot(1, columns, 2)
             plt.imshow(mask, cmap='gray', vmin=0, vmax=1)
-            plt.title("Mask")
+            plt.title("Target alpha")
             plt.axis('off')
             
+            plt.subplot(1, columns, 3)
+            plt.imshow(alpha, cmap='gray', vmin=0, vmax=1)
+            plt.title("Predicted alpha")
+            plt.axis('off')
+
             if use_refiner:
-                plt.subplot(1, columns, 3)
+                plt.subplot(1, columns, 4)
                 plt.imshow(np.dstack((img, original_alpha)))
                 plt.title("SegFormer")
                 plt.axis('off')

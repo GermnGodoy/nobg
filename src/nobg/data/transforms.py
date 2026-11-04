@@ -17,7 +17,7 @@ class Augmenter:
     
     def __init__(self, image_size, hflip_prob=0.5, vflip_prob=0.5, rotate_prob=0.5, 
                  crop_prob=0.5, brightness_contrast_prob=0.5, rotate_limit=45,
-                 crop_before_resize=False, crop_scale=(0.08, 1.0), seed=None):
+                 crop_before_resize=False, crop_scale=(0.08, 1.0), seed=None, matting=False):
         
         resize = [A.Resize(image_size, image_size)]
 
@@ -40,13 +40,13 @@ class Augmenter:
             geometry,
             A.Normalize(),
             ToTensorV2()
-        ], mask_interpolation=cv2.INTER_NEAREST, seed=seed)
+        ], mask_interpolation=cv2.INTER_LINEAR if matting else cv2.INTER_NEAREST, seed=seed)
     
     def __call__(self, *, image, mask):
         return self.transform(image=image, mask=mask)
         
 
-def get_val_augmentation(image_size):
+def get_val_augmentation(image_size, matting=False):
     """
     Returns the validation augmentation pipeline.
     """
@@ -54,4 +54,4 @@ def get_val_augmentation(image_size):
         A.Resize(image_size, image_size),
         A.Normalize(),
         ToTensorV2()
-    ])
+    ], mask_interpolation=cv2.INTER_LINEAR if matting else cv2.INTER_NEAREST)

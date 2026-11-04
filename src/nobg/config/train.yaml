@@ -1,7 +1,7 @@
 
 
-log_dir: "./runs/decoder_512/logs/train.log"
-checkpoint_dir: "./runs/decoder_512/checkpoints"
+log_dir: "./runs/matting_512/logs/train.log"
+checkpoint_dir: "./runs/matting_512/checkpoints"
 
 model:
   use_refiner: true
@@ -14,6 +14,7 @@ resume: false
 
 augmentation:
   image_size: 512
+  matting: true  
   hflip_prob: 0.5 
   vflip_prob: 0.2
   rotate_prob: 0.5
@@ -23,11 +24,14 @@ augmentation:
   brightness_contrast_prob: 0.3
   rotate_limit: 20
 
-mask_path: "./images/DUTS-TR/DUTS-TR-Mask"
-image_path: "./images/DUTS-TR/DUTS-TR-Image"
+# Expected layout: images/ and alphas/ inside each MAGICK split.
+mask_path: "./images/MAGICK-TR/alphas"
+image_path: "./images/MAGICK-TR/images"
+val_mask_path: "./images/MAGICK-TE/alphas"
+val_image_path: "./images/MAGICK-TE/images"
 
 sample_images: true
-sample_images_dir: "./runs/decoder_512/sample"
+sample_images_dir: "./runs/matting_512/sample"
 sample_images_dpi: 160  # Keep the 512px contour details visible in the comparison.
 
 training:
@@ -37,7 +41,7 @@ training:
   num_workers: 4
   shuffle: true
   steps: null  # Use every training batch, including with the smaller batch size.
-  metrics: ["Dice", "BCE", "False Positive", "True Positive", "Boundary F1"]
+  metrics: ["MAE", "MSE"]
   compare_original: true  # Metrics before the residual correction; the decoder now learns too.
   optimizer: "adamw"
   learning_rate: 0.0001
@@ -48,8 +52,10 @@ training:
   min_lr: 1e-6
   boundary_kernel_size: 13  # Same relative band radius as 7x7 at 256px.
   loss:
-    dice: 1.0
-    bce: 1.0
-    boundary: 0.5
+    l1: 1.0
+    gradient: 1.0
+    dice: 0.0
+    bce: 0.0
+    boundary: 0.0  # Keep the binary contour loss disabled for matting.
 
 seed: 2811

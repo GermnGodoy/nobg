@@ -7,7 +7,7 @@ from src.nobg.data.transforms import Augmenter, get_val_augmentation
 import torch
 from src.nobg.model.model import build_segformer, load_segformer_weights
 
-from src.nobg.trainer.loss import bce_loss, dice_loss, edge_loss, metrics
+from src.nobg.trainer.loss import bce_loss, dice_loss, edge_loss, l1_loss, gradient_loss, metrics
 from src.nobg.trainer.optimizer import optimizers
 from src.nobg.trainer.sampler import sample_images
 
@@ -51,13 +51,19 @@ def build_loss(training):
     weights = training.get("loss") or {}
     dice_weight = float(weights.get("dice") or 0.0)
     bce_weight = float(weights.get("bce") or 0.0)
+    l1_weight = float(weights.get("l1") or 0.0)
+    gradient_weight = float(weights.get("gradient") or 0.0)
     edge_weight = float(weights.get("boundary") or 0.0)
-    if dice_weight == 0.0 and bce_weight == 0.0:
+    if not any((dice_weight, bce_weight, l1_weight, gradient_weight)):
         print("No active base loss weights specified. Using Dice Loss.")
         dice_weight = 1.0
 
     def loss_fn(pred, target):
-        loss = dice_weight * dice_loss(pred, target) + bce_weight * bce_loss(pred, target)
+        loss = pred.new_zeros(())
+        for weight, fn in ((dice_weight, dice_loss), (bce_weight, bce_loss),
+                           (l1_weight, l1_loss), (gradient_weight, gradient_loss)):
+            if weight:
+                loss = loss + weight * fn(pred, target)
         if edge_weight:
             loss = loss + edge_weight * edge_loss(
                 pred, target, kernel_size=training.get("boundary_kernel_size", 7),
@@ -243,22 +249,33 @@ def main():
     num_workers = config["training"]["num_workers"] if "num_workers" in config["training"] else 1
 
     augmenter = Augmenter(**config["augmentation"], seed=seed)
-    val_aug = get_val_augmentation(config["augmentation"]["image_size"])
+    val_aug = get_val_augmentation(
+        config["augmentation"]["image_size"],
+        matting=config["augmentation"].get("matting", False),
+    )
+
+    val_mask_path = config.get("val_mask_path")
+    val_image_path = config.get("val_image_path")
+    if bool(val_mask_path) != bool(val_image_path):
+        raise ValueError("Set both val_mask_path and val_image_path, or omit both to split the training data.")
 
     train_data = Dataset(mask_path, image_path, transform=augmenter)
-    val_data = Dataset(mask_path, image_path, transform=val_aug)
+    if val_mask_path and val_image_path:
+        train_dataset = train_data
+        val_dataset = Dataset(val_mask_path, val_image_path, transform=val_aug)
+    else:
+        val_data = Dataset(mask_path, image_path, transform=val_aug)
+        val_percent = config["training"]["val_percent"] if "val_percent" in config["training"] else 0.1
 
-    val_percent = config["training"]["val_percent"] if "val_percent" in config["training"] else 0.1
-    
-    if val_percent >= 1.0:
-        print("Invalid validation percentage.")
-        print("Setting validation percentage to 10%")
-        val_percent = 0.1
+        if val_percent >= 1.0:
+            print("Invalid validation percentage.")
+            print("Setting validation percentage to 10%")
+            val_percent = 0.1
 
-    train_indices, val_indices = torch.utils.data.random_split(range(len(train_data)), [1 - val_percent, val_percent], generator=torch.Generator().manual_seed(config["seed"]))
+        train_indices, val_indices = torch.utils.data.random_split(range(len(train_data)), [1 - val_percent, val_percent], generator=torch.Generator().manual_seed(config["seed"]))
 
-    train_dataset = torch.utils.data.Subset(train_data, train_indices)
-    val_dataset = torch.utils.data.Subset(val_data, val_indices)
+        train_dataset = torch.utils.data.Subset(train_data, train_indices)
+        val_dataset = torch.utils.data.Subset(val_data, val_indices)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)

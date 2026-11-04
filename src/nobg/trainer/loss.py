@@ -28,40 +28,73 @@ def bce_loss(pred, target):
     return bce(pred, target)
 
 # ---------------------------------------------
+# Matting
+
+def mae(pred, target):
+    """Mean absolute error of continuous alpha, from logits."""
+    return F.l1_loss(pred.sigmoid(), target)
+
+
+def mse(pred, target):
+    """Mean squared error of continuous alpha, from logits."""
+    return F.mse_loss(pred.sigmoid(), target)
+
+
+def l1_loss(pred, target):
+    return mae(pred, target)
+
+
+def gradient_loss(pred, target):
+    """L1 error of horizontal and vertical differences in continuous alpha."""
+    alpha = pred.sigmoid()
+    loss = alpha.mean() * 0
+    for dim in (2, 3):
+        if alpha.shape[dim] > 1:
+            loss = loss + F.l1_loss(
+                torch.diff(alpha, dim=dim), torch.diff(target, dim=dim),
+            )
+    return loss
+
+# ---------------------------------------------
 # Edges
 
 def get_edges(target, kernel_size=7):
     """Binary morphological gradient; pooling ignores pixels outside the image."""
     if not isinstance(kernel_size, int) or kernel_size < 1 or kernel_size % 2 == 0:
         raise ValueError("Boundary kernel_size must be a positive odd integer")
+    
     binary = (target >= 0.5).to(target.dtype)
     padding = kernel_size // 2
     dilated = F.max_pool2d(binary, kernel_size, stride=1, padding=padding)
-    eroded = -F.max_pool2d(-binary, kernel_size, stride=1, padding=padding)
-    return dilated - eroded
+    other = -F.max_pool2d(-binary, kernel_size, stride=1, padding=padding)
+    return dilated - other
 
 
 def edge_loss(pred, target, kernel_size=7):
     edges = get_edges(target, kernel_size)
     loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+
     return (loss * edges).sum() / edges.sum().clamp_min(1)
 
 
 def edge_f1(pred, target):
-    """Mean contour F1 at probability 0.5, with a two-pixel matching tolerance.
-
-    Both empty contours score 1; only one empty contour scores 0.
-    """
+    """Mean contour F1 at probability 0.5, with a two-pixel matching tolerance"""
+    
     pred_edges = get_edges((pred >= 0).to(target.dtype), kernel_size=3)
     target_edges = get_edges(target, kernel_size=3)
+    
     pred_dilated = F.max_pool2d(pred_edges, 5, stride=1, padding=2)
     target_dilated = F.max_pool2d(target_edges, 5, stride=1, padding=2)
+    
     dims = (1, 2, 3)
+    
     pred_count, target_count = pred_edges.sum(dims), target_edges.sum(dims)
     precision = (pred_edges * target_dilated).sum(dims) / pred_count.clamp_min(1)
     recall = (target_edges * pred_dilated).sum(dims) / target_count.clamp_min(1)
+    
     f1 = 2 * precision * recall / (precision + recall).clamp_min(1e-6)
     empty = (pred_count == 0) & (target_count == 0)
+    
     return torch.where(empty, torch.ones_like(f1), f1).mean()
 
 # ---------------------------------------------
@@ -90,6 +123,8 @@ def true_positive(pred, target):
 # ---------------------------------------------
 
 metrics = {
+    "MAE": mae,
+    "MSE": mse,
     "Dice": dice,
     "BCE": bce,
     "Boundary F1": edge_f1,
