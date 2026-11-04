@@ -8,10 +8,10 @@ from pathlib import Path
 
 class Dataset(torch.utils.data.Dataset):
     """
-    Image/alpha pairs matched by filename stem; unpaired files are skipped.
+    Image/alpha pairs matched by filename stem; unpaired or invalid files are skipped.
     """
     
-    def __init__(self, mask_path, image_path, transform=None):
+    def __init__(self, mask_path, image_path, transform=None, validate_files=True):
         self.mask_path = mask_path
         self.mask_routes = sorted(path for path in Path(self.mask_path).glob("*.png"))
         self.image_path = image_path
@@ -38,14 +38,41 @@ class Dataset(torch.utils.data.Dataset):
         self.image_routes = [images[name] for name in names]
         self.mask_routes = [masks[name] for name in names]
 
+        if validate_files:
+            total = len(self.image_routes)
+            print(f"Checking readability of {total} image/alpha pairs...", flush=True)
+            valid_indices = []
+            for idx in range(total):
+                try:
+                    self._read_pair(idx)
+                except (ValueError, cv2.error) as error:
+                    print(f"Skipping pair {self.image_routes[idx]} / {self.mask_routes[idx]}: {error}", flush=True)
+                else:
+                    valid_indices.append(idx)
+                checked = idx + 1
+                if checked % 100 == 0 or checked == total:
+                    print(f"Checked {checked}/{total} pairs; skipped {checked - len(valid_indices)}.", flush=True)
+            if not valid_indices:
+                raise ValueError(f"No readable image/mask pairs found in {self.image_path} and {self.mask_path}.")
+            self.image_routes = [self.image_routes[idx] for idx in valid_indices]
+            self.mask_routes = [self.mask_routes[idx] for idx in valid_indices]
+
     __len__ = lambda self: min(len(self.mask_routes), len(self.image_routes))
 
-    def __getitem__(self, idx):
+    def _read_pair(self, idx):
         mask = cv2.imread(str(self.mask_routes[idx]), cv2.IMREAD_UNCHANGED)
         image = cv2.imread(str(self.image_routes[idx]), cv2.IMREAD_COLOR)
 
-        if mask is None or image is None:
-            raise ValueError(f"Could not read image or mask: {self.image_routes[idx]}, {self.mask_routes[idx]}")
+        if image is None:
+            raise ValueError(f"Could not read image: {self.image_routes[idx]}")
+        if mask is None:
+            raise ValueError(f"Could not read mask: {self.mask_routes[idx]}")
+        if image.shape[:2] != mask.shape[:2]:
+            raise ValueError(f"Image and mask sizes differ: {image.shape[:2]} vs {mask.shape[:2]}")
+        return image, mask
+
+    def __getitem__(self, idx):
+        image, mask = self._read_pair(idx)
         if mask.ndim == 3:
             mask = mask[:, :, 3] if mask.shape[2] == 4 else cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
 
