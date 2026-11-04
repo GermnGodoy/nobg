@@ -1,27 +1,29 @@
-
 #!/usr/bin/env bash
 set -euo pipefail
 
 python3 - <<'PY'
 import random
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from huggingface_hub import HfApi, hf_hub_download
 from PIL import Image
+from tqdm import tqdm
 
 REPO = "OneOverZero/MAGICK"
 TARGET_BYTES = 35_000_000_000
 TEST_FRACTION = 0.1
+WORKERS = 16
 ROOT = Path("images")
 MANIFEST = ROOT / "magick_files.txt"
 
-# Reuse the same selection when restarting.
 ROOT.mkdir(exist_ok=True)
 
+# Load or generate the file selection.
 if MANIFEST.exists():
     files = MANIFEST.read_text().splitlines()
 else:
-    print("Listing MAGICK files...", flush=True)
+    print("Listing MAGICK files...")
 
     entries = [
         (f.path, f.size)
@@ -45,19 +47,19 @@ else:
     MANIFEST.write_text("\n".join(files) + "\n")
     print(f"Selected {len(files)} images ({total / 1e9:.2f} GB)")
 
-# Reproducible train/test split.
 random.Random(123).shuffle(files)
 test_count = round(len(files) * TEST_FRACTION)
 
-for i, path in enumerate(files):
+def process(item):
+    i, path = item
     split = "MAGICK-TE" if i < test_count else "MAGICK-TR"
-    name = Path(path).stem + ".png"
+    name = Path(path).name
 
     image_out = ROOT / split / "images" / name
     alpha_out = ROOT / split / "alphas" / name
 
     if image_out.exists() and alpha_out.exists():
-        continue
+        return
 
     image_out.parent.mkdir(parents=True, exist_ok=True)
     alpha_out.parent.mkdir(parents=True, exist_ok=True)
@@ -68,13 +70,19 @@ for i, path in enumerate(files):
         filename=path
     )
 
-    with Image.open(downloaded) as rgba:
-        rgba = rgba.convert("RGBA")
+    with Image.open(downloaded) as img:
+        rgba = img.convert("RGBA")
         rgba.convert("RGB").save(image_out)
         rgba.getchannel("A").save(alpha_out)
 
-    if (i + 1) % 100 == 0:
-        print(f"Processed {i + 1}/{len(files)}", flush=True)
+# Download and process images concurrently.
+with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+    tasks = [executor.submit(process, item) for item in enumerate(files)]
+
+    with tqdm(total=len(tasks), desc="Processing MAGICK") as progress:
+        for task in as_completed(tasks):
+            task.result()
+            progress.update(1)
 
 print("Done.")
 PY
