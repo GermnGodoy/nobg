@@ -1,7 +1,7 @@
 
 
-log_dir: "./runs/matting_512/logs/train.log"
-checkpoint_dir: "./runs/matting_512/checkpoints"
+log_dir: "./runs/matting_768/logs/train.log"
+checkpoint_dir: "./runs/matting_768/checkpoints"
 
 model:
   use_refiner: true
@@ -13,8 +13,9 @@ pretrained: ./src/nobg/model/weights.pth
 resume: false
 
 augmentation:
-  image_size: 512
-  matting: true  
+  image_size: 768  # MAGICK sources are 1024px; retain detail before refining.
+  matting: true
+  preserve_aspect_ratio: true  # Isotropic crops; fit and pad whole images.
   hflip_prob: 0.5 
   vflip_prob: 0.2
   rotate_prob: 0.5
@@ -24,6 +25,11 @@ augmentation:
   brightness_contrast_prob: 0.3
   rotate_limit: 20
 
+# Compose MAGICK foregrounds over photographs; validation composites stay fixed.
+# Omit these paths for inputs that are already complete photographs.
+background_path: "./images/DUTS-TR/DUTS-TR-Image"
+val_background_path: "./images/DUTS-TE/DUTS-TE-Image"
+
 # Expected layout: images/ and alphas/ inside each MAGICK split.
 mask_path: "./images/MAGICK-TR/alphas"
 image_path: "./images/MAGICK-TR/images"
@@ -31,22 +37,24 @@ val_mask_path: "./images/MAGICK-TE/alphas"
 val_image_path: "./images/MAGICK-TE/images"
 
 sample_images: true
-sample_images_dir: "./runs/matting_512/sample"
-sample_images_dpi: 160  # Keep the 512px contour details visible in the comparison.
+sample_images_dir: "./runs/matting_768/sample"
+sample_images_dpi: 192
 
 training:
   # New fine-tuning phase: start at epoch 1 and evaluate over 20 epochs.
   epochs: 20
-  batch_size: 4
+  batch_size: 1
+  accumulation_steps: 4  # Effective batch of four without four high-res graphs.
   num_workers: 4
   shuffle: true
   steps: null  # Use every training batch, including with the smaller batch size.
-  metrics: ["MAE", "MSE"]
+  metrics: ["MAE", "MSE", "Detail MAE"]
   compare_original: true  # Metrics before the residual correction; the decoder now learns too.
   optimizer: "adamw"
   learning_rate: 0.0001
   # Train decoder and refiner together; the encoder remains frozen.
   refiner_phase: decoder
+  refiner_warmup_epochs: 2  # Learn the new residual head before changing DUTS decoder weights.
   refiner_learning_rate: 0.0001
   decoder_learning_rate: 0.00001
   min_lr: 1e-6
@@ -54,6 +62,7 @@ training:
   loss:
     l1: 1.0
     gradient: 1.0
+    detail: 1.0  # Continuous-alpha error concentrated on edges and translucency.
     dice: 0.0
     bce: 0.0
     boundary: 0.0  # Keep the binary contour loss disabled for matting.

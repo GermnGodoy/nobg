@@ -55,6 +55,23 @@ def gradient_loss(pred, target):
             )
     return loss
 
+
+def detail_loss(pred, target, kernel_size=7):
+    """Continuous-alpha MAE on transitions and translucent regions, per image.
+
+    Normalize by the detail area so thin hair and soft edges cannot be diluted
+    by large regions of entirely opaque foreground or empty background.
+    """
+    if not isinstance(kernel_size, int) or kernel_size < 1 or kernel_size % 2 == 0:
+        raise ValueError("Detail kernel_size must be a positive odd integer")
+    padding = kernel_size // 2
+    maximum = F.max_pool2d(target, kernel_size, stride=1, padding=padding)
+    minimum = -F.max_pool2d(-target, kernel_size, stride=1, padding=padding)
+    region = (((target > 0) & (target < 1)) | (maximum - minimum > 1e-6)).to(target.dtype)
+    error = (pred.sigmoid() - target).abs() * region
+    dims = (1, 2, 3)
+    return (error.sum(dims) / region.sum(dims).clamp_min(1)).mean()
+
 # ---------------------------------------------
 # Edges
 
@@ -125,6 +142,7 @@ def true_positive(pred, target):
 metrics = {
     "MAE": mae,
     "MSE": mse,
+    "Detail MAE": detail_loss,
     "Dice": dice,
     "BCE": bce,
     "Boundary F1": edge_f1,

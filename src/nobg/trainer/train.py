@@ -7,7 +7,7 @@ from src.nobg.data.transforms import Augmenter, get_val_augmentation
 import torch
 from src.nobg.model.model import build_segformer, load_segformer_weights
 
-from src.nobg.trainer.loss import bce_loss, dice_loss, edge_loss, l1_loss, gradient_loss, metrics
+from src.nobg.trainer.loss import bce_loss, dice_loss, edge_loss, l1_loss, gradient_loss, detail_loss, metrics
 from src.nobg.trainer.optimizer import optimizers
 from src.nobg.trainer.sampler import sample_images
 
@@ -53,15 +53,17 @@ def build_loss(training):
     bce_weight = float(weights.get("bce") or 0.0)
     l1_weight = float(weights.get("l1") or 0.0)
     gradient_weight = float(weights.get("gradient") or 0.0)
+    detail_weight = float(weights.get("detail") or 0.0)
     edge_weight = float(weights.get("boundary") or 0.0)
-    if not any((dice_weight, bce_weight, l1_weight, gradient_weight)):
+    if not any((dice_weight, bce_weight, l1_weight, gradient_weight, detail_weight)):
         print("No active base loss weights specified. Using Dice Loss.")
         dice_weight = 1.0
 
     def loss_fn(pred, target):
         loss = pred.new_zeros(())
         for weight, fn in ((dice_weight, dice_loss), (bce_weight, bce_loss),
-                           (l1_weight, l1_loss), (gradient_weight, gradient_loss)):
+                           (l1_weight, l1_loss), (gradient_weight, gradient_loss),
+                           (detail_weight, detail_loss)):
             if weight:
                 loss = loss + weight * fn(pred, target)
         if edge_weight:
@@ -75,7 +77,9 @@ def build_loss(training):
 # ---------------------------------------------
 # Train Epoch
 
-def train_epoch(model, train_loader, device, steps, optimizer, loss_fn):
+def train_epoch(model, train_loader, device, steps, optimizer, loss_fn, accumulation_steps=1):
+    if not isinstance(accumulation_steps, int) or accumulation_steps < 1:
+        raise ValueError("accumulation_steps must be a positive integer")
     model.train()
     
     total_loss = 0.0
@@ -85,6 +89,7 @@ def train_epoch(model, train_loader, device, steps, optimizer, loss_fn):
         total_steps = min(total_steps, steps)
 
     print("===============================================")
+    optimizer.zero_grad(set_to_none=True)
     
     for step, (images, masks) in enumerate(train_loader):
         if steps is not None and step >= steps:
@@ -92,11 +97,16 @@ def train_epoch(model, train_loader, device, steps, optimizer, loss_fn):
         
         images, masks = images.to(device), masks.to(device)
         
-        optimizer.zero_grad()
         outputs = model(images)
         loss = loss_fn(outputs, masks)
-        loss.backward()
-        optimizer.step()
+        # Scale the final partial window too, rather than silently dropping it
+        # or giving it a smaller update than the preceding windows.
+        window_start = (step // accumulation_steps) * accumulation_steps
+        window_size = min(accumulation_steps, total_steps - window_start)
+        (loss / window_size).backward()
+        if (step + 1) % accumulation_steps == 0 or step + 1 == total_steps:
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
         
         total_loss += loss.item()
 
@@ -203,8 +213,12 @@ def main():
     model.to(device)
 
     training = config["training"]
+    warmup_epochs = training.get("refiner_warmup_epochs", 0)
+    if not isinstance(warmup_epochs, int) or warmup_epochs < 0:
+        raise ValueError("refiner_warmup_epochs must be a non-negative integer")
     if model.use_refiner:
-        model.configure_refiner_training(training.get("refiner_phase", "refiner"))
+        target_phase = training.get("refiner_phase", "refiner")
+        model.configure_refiner_training(target_phase)
         groups = [{
             "params": model.refiner.parameters(),
             "lr": float(training.get("refiner_learning_rate", 1e-4)),
@@ -254,6 +268,7 @@ def main():
     val_aug = get_val_augmentation(
         config["augmentation"]["image_size"],
         matting=config["augmentation"].get("matting", False),
+        preserve_aspect_ratio=config["augmentation"].get("preserve_aspect_ratio", False),
     )
 
     val_mask_path = config.get("val_mask_path")
@@ -262,13 +277,16 @@ def main():
         raise ValueError("Set both val_mask_path and val_image_path, or omit both to split the training data.")
 
     print(f"Indexing training images: {image_path}")
-    train_data = Dataset(mask_path, image_path, transform=augmenter)
+    train_data = Dataset(mask_path, image_path, transform=augmenter,
+                         background_path=config.get("background_path"))
+    val_compositing = dict(background_path=config.get("val_background_path"),
+                           deterministic_composites=True, seed=seed or 0)
     if val_mask_path and val_image_path:
         train_dataset = train_data
         print(f"Indexing validation images: {val_image_path}")
-        val_dataset = Dataset(val_mask_path, val_image_path, transform=val_aug)
+        val_dataset = Dataset(val_mask_path, val_image_path, transform=val_aug, **val_compositing)
     else:
-        val_data = Dataset(mask_path, image_path, transform=val_aug)
+        val_data = Dataset(mask_path, image_path, transform=val_aug, **val_compositing)
         val_percent = config["training"]["val_percent"] if "val_percent" in config["training"] else 0.1
 
         if val_percent >= 1.0:
@@ -289,10 +307,20 @@ def main():
     print("===============================================\n")
 
     loss_fn = build_loss(config["training"])
+    best_val_loss = float("inf")
+    if start_epoch:
+        best_val_loss = checkpoint.get("best_val_loss", checkpoint.get("val_loss", float("inf")))
 
     # Start training
     for epoch in range(start_epoch, epochs):
-        train_loss, epoch_steps = train_epoch(model, train_loader, device, steps, optimizer, loss_fn)
+        if model.use_refiner:
+            phase = "refiner" if epoch < warmup_epochs else target_phase
+            model.configure_refiner_training(phase)
+            print(f"Training phase: {phase} (epoch {epoch + 1})", flush=True)
+        train_loss, epoch_steps = train_epoch(
+            model, train_loader, device, steps, optimizer, loss_fn,
+            accumulation_steps=training.get("accumulation_steps", 1),
+        )
         global_step += epoch_steps
         
         print(f"\nEpoch {epoch + 1}/{epochs}, Loss: {train_loss:.4f}\n")
@@ -312,7 +340,9 @@ def main():
 
         if epoch % 1 == 0:
             print("\n================================================\n")
-            torch.save({
+            is_best = validate_loss < best_val_loss
+            best_val_loss = min(best_val_loss, validate_loss)
+            state = {
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "epoch": epoch + 1,
@@ -320,9 +350,14 @@ def main():
                 "loss": train_loss,
                 "val_loss": validate_loss,
                 "val_metrics": validate_metrics,
+                "best_val_loss": best_val_loss,
                 "config": config,
                 "scheduler_state_dict": scheduler.state_dict()
-            }, checkpoint_dir / f"model_epoch_{epoch + 1}.pth")
+            }
+            torch.save(state, checkpoint_dir / f"model_epoch_{epoch + 1}.pth")
+            if is_best:
+                torch.save(state, checkpoint_dir / "best.pth")
+                print(f"Best validation loss improved to {best_val_loss:.6f}")
             print(f"Checkpoint saved at epoch {epoch + 1}, global step {global_step}")
 
             if config["sample_images"]:
@@ -334,5 +369,5 @@ def main():
             print()
 
 
-if __name__ == "__main__":  
+if __name__ == "__main__":
     main()
