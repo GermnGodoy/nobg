@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Saves native foreground RGB + alpha; the training loader composites backgrounds.
 # Example: WORKERS=32 PNG_COMPRESS_LEVEL=1 bash download_alpha_datasets.sh
 python3 - <<'PY'
 import os
 import random
 from pathlib import Path
+from threading import RLock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub.utils import disable_progress_bars
 from PIL import Image
 from tqdm import tqdm
+
+# Keep one overall bar instead of one Hugging Face bar per download thread.
+tqdm.set_lock(RLock())
+disable_progress_bars()
 
 REPO = "OneOverZero/MAGICK"
 TARGET_BYTES = 35_000_000_000
@@ -37,11 +44,9 @@ else:
 
     entries = [
         (f.path, f.size)
-        for f in HfApi().list_repo_tree(
-            REPO,
-            path_in_repo="images",
-            repo_type="dataset",
-            recursive=True
+        for f in tqdm(
+            HfApi().list_repo_tree(REPO, path_in_repo="images", repo_type="dataset", recursive=True),
+            desc="Listing MAGICK", unit="files", dynamic_ncols=True,
         )
         if f.path.endswith(".png") and f.size
     ]
@@ -69,7 +74,7 @@ def process(item):
     alpha_out = ROOT / split / "alphas" / name
 
     if image_out.exists() and alpha_out.exists():
-        return
+        return False
 
     image_out.parent.mkdir(parents=True, exist_ok=True)
     alpha_out.parent.mkdir(parents=True, exist_ok=True)
@@ -84,14 +89,19 @@ def process(item):
         rgba = img.convert("RGBA")
         rgba.convert("RGB").save(image_out, compress_level=PNG_COMPRESS_LEVEL)
         rgba.getchannel("A").save(alpha_out, compress_level=PNG_COMPRESS_LEVEL)
+    return True
 
 # Download and process images concurrently.
-with ThreadPoolExecutor(max_workers=WORKERS) as executor:
-    tasks = [executor.submit(process, item) for item in enumerate(files)]
-
-    with tqdm(total=len(tasks), desc="Processing MAGICK") as progress:
+with tqdm(total=len(files), desc="MAGICK", unit="img", dynamic_ncols=True, miniters=1) as progress:
+    created = existing = 0
+    with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+        tasks = [executor.submit(process, item) for item in enumerate(files)]
         for task in as_completed(tasks):
-            task.result()
+            if task.result():
+                created += 1
+            else:
+                existing += 1
+            progress.set_postfix(new=created, existing=existing, refresh=False)
             progress.update(1)
 
 print("Done.")
