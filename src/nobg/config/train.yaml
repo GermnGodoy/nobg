@@ -6,11 +6,10 @@ checkpoint_dir: "./runs/matting_768/checkpoints"
 model:
   use_refiner: true
 
-# Load the existing SegFormer weights; initialize the refiner if none are included.
-# A saved refiner checkpoint can also be used here to retain its learned weights.
-pretrained: ./src/nobg/model/weights.pth
-# To resume this experiment, select its checkpoint above and set this to true.
-resume: false
+# Continue from the saved SegFormer and refiner checkpoint.
+pretrained: ./src/nobg/model/model_epoch_3.pth
+# Restore the optimizer, scheduler, and completed epoch/step counters.
+resume: true
 
 augmentation:
   image_size: 768  # MAGICK sources are 1024px; retain detail before refining.
@@ -41,7 +40,7 @@ sample_images_dir: "./runs/matting_768/sample"
 sample_images_dpi: 192
 
 training:
-  # New fine-tuning phase: start at epoch 1 and evaluate over 20 epochs.
+  # Total epochs, including those already completed in the checkpoint.
   epochs: 20
   batch_size: 1
   accumulation_steps: 4  # Effective batch of four without four high-res graphs.
